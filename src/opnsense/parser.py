@@ -13,6 +13,7 @@ from src.models import (
     OPNsenseAlias,
     OPNsensePortForward,
     OPNsenseFilterRule,
+    OmittedItem,
 )
 
 
@@ -49,6 +50,9 @@ class OPNsenseParser:
 
         # 6. Parse Firewall Filter Rules
         config.filter_rules = self._parse_filter_rules()
+
+        # 7. Detect Omitted / Non-migrated Items
+        config.omitted_items = self._detect_omitted_items()
 
         return config
 
@@ -328,6 +332,144 @@ class OPNsenseParser:
             )
 
         return filter_rules
+
+    def _detect_omitted_items(self) -> List[OmittedItem]:
+        """
+        Scans OPNsense XML for features that cannot or should not be automatically
+        migrated to UniFi Cloud Gateway Max, producing a clear actionable audit list.
+        """
+        omitted: List[OmittedItem] = []
+
+        # 1. VPN Services (WireGuard, OpenVPN, IPsec)
+        if self.root.find(".//wireguard") is not None:
+            omitted.append(
+                OmittedItem(
+                    category="VPN",
+                    name="WireGuard VPN Konfiguration",
+                    reason="UniFi OS verwaltet WireGuard-Schlüssel und Peer-Profile über einen eigenen Linux-Dienst (Teleport / WireGuard Server) und erlaubt keinen rohen XML-Import von FreeBSD-Tunneln.",
+                    recommendation="In UniFi Network unter 'Settings > VPN > VPN Server' einen neuen WireGuard-Server anlegen. Clients können dort per 1-Klick-QR-Code neu angebunden werden.",
+                    severity="action_required",
+                )
+            )
+
+        if self.root.find(".//openvpn") is not None or self.root.find(".//openvpn-server") is not None:
+            omitted.append(
+                OmittedItem(
+                    category="VPN",
+                    name="OpenVPN Server / Client Instanzen",
+                    reason="OpenVPN-Server und CA-Zertifikatsketten werden in UniFi OS nativ verwaltet und können nicht als rohe pfSense/OPNsense-Objekte übertragen werden.",
+                    recommendation="Unter 'Settings > VPN > VPN Server' als OpenVPN einrichten oder idealerweise auf das performantere WireGuard / Teleport umstellen.",
+                    severity="action_required",
+                )
+            )
+
+        if self.root.find(".//ipsec") is not None:
+            omitted.append(
+                OmittedItem(
+                    category="VPN",
+                    name="IPsec Tunnel (Phase 1 & Phase 2)",
+                    reason="IPsec-Spezifika (IKEv1/v2 Proposals, PSK, P1/P2) müssen in UniFi über das native Site-to-Site Interface konfiguriert werden.",
+                    recommendation="In UniFi unter 'Settings > VPN > Site-to-Site VPN' als IPsec Tunnel neu konfigurieren.",
+                    severity="action_required",
+                )
+            )
+
+        # 2. Unsupported / Dynamic Aliases (URL Tables, GeoIP)
+        for alias in self.root.findall(".//aliases/alias"):
+            atype = self._get_text(alias, "type").lower()
+            aname = self._get_text(alias, "name")
+            if atype in ["url", "urltable", "url_table", "geoip"]:
+                omitted.append(
+                    OmittedItem(
+                        category="Alias",
+                        name=f"Dynamischer Alias '{aname}' (Typ: {atype})",
+                        reason="UniFi Firewall Groups unterstützen ausschließlich statische IPs/Subnetze und Ports, keine dynamisch periodisch nachgeladenen URL-Listen oder GeoIP-Listen.",
+                        recommendation="Ländersperren in UniFi unter 'Settings > Security > Country Restrictions' aktivieren. Für URL-Listen die integrierten DNS-Filter ('Ad Blocking') nutzen.",
+                        severity="warning",
+                    )
+                )
+
+        # 3. Floating Rules & Policy Routing (Gateways)
+        for idx, rule in enumerate(self.root.findall(".//filter/rule")):
+            floating = self._get_text(rule, "floating") == "yes"
+            direction = self._get_text(rule, "direction").lower()
+            gateway = self._get_text(rule, "gateway")
+            descr = self._get_text(rule, "descr") or f"Regel #{idx+1}"
+
+            if floating:
+                omitted.append(
+                    OmittedItem(
+                        category="Firewall",
+                        name=f"Floating Rule '{descr}'",
+                        reason="OPNsense Floating Rules wirken Schnittstellen-übergreifend. UniFi ordnet Firewall-Regeln strikt den Zonen LAN_IN, WAN_IN oder LAN_LOCAL zu.",
+                        recommendation="Prüfen Sie, für welches VLAN die Regel galt, und legen Sie diese gezielt auf LAN_IN oder als Traffic Rule an.",
+                        severity="warning",
+                    )
+                )
+
+            if gateway:
+                omitted.append(
+                    OmittedItem(
+                        category="Firewall / Routing",
+                        name=f"Policy-Based Route (Gateway: {gateway}) in '{descr}'",
+                        reason="In OPNsense werden Multi-WAN Gateways in Firewall-Regeln überschrieben. UniFi trennt Firewall-Filterung strikt von 'Policy-Based Routes'.",
+                        recommendation="In UniFi unter 'Settings > Routing > Policy-Based Routes' (Traffic Routes) eine eigene Route für das Quell-/Zielnetzwerk anlegen.",
+                        severity="warning",
+                    )
+                )
+
+        # 4. Custom DNS Host Overrides (außerhalb DHCP)
+        unbound_hosts = self.root.findall(".//unbound/hosts")
+        if unbound_hosts:
+            omitted.append(
+                OmittedItem(
+                    category="DNS",
+                    name=f"Unbound DNS Host Overrides ({len(unbound_hosts)} Einträge)",
+                    reason="In OPNsense gepflegte statische DNS-Einträge außerhalb von DHCP-Reservierungen werden nicht automatisch in die UniFi DNS-Tabelle injiziert.",
+                    recommendation="In UniFi Network unter 'Settings > Routing > DNS Records' die gewünschten Hostnamen manuell als A-Records anlegen.",
+                    severity="info",
+                )
+            )
+
+        # 5. Traffic Shaper / Bandwidth Limiters
+        if self.root.find(".//trafficshaper") is not None or self.root.find(".//dnshaper") is not None:
+            omitted.append(
+                OmittedItem(
+                    category="QoS",
+                    name="Traffic Shaper (CoDel / Dummynet Pipes)",
+                    reason="OPNsense nutzt FreeBSD-Pipes für Bandbreitenlimits. UniFi nutzt hardware-beschleunigtes Smart Queuing (FQ-CoDel) auf WAN-Ebene.",
+                    recommendation="In UniFi unter 'Settings > Internet > WAN > Smart Queues' aktivieren und Bandbreitenlimits eintragen.",
+                    severity="info",
+                )
+            )
+
+        # 6. FreeBSD User Accounts & Plugins
+        users = self.root.findall(".//system/user")
+        if users:
+            usernames = [self._get_text(u, "name") for u in users if self._get_text(u, "name") != "root"]
+            if usernames:
+                omitted.append(
+                    OmittedItem(
+                        category="System",
+                        name=f"FreeBSD Benutzerkonten ({', '.join(usernames)})",
+                        reason="UniFi OS besitzt eine eigene Linux-Benutzerverwaltung mit Rollen und 2FA und übernimmt keine FreeBSD-Passworthashes.",
+                        recommendation="Zusätzliche Administratoren in UniFi OS unter 'Admins & Users' einladen.",
+                        severity="info",
+                    )
+                )
+
+        if self.root.find(".//installedpackages") is not None:
+            omitted.append(
+                OmittedItem(
+                    category="Plugins",
+                    name="OPNsense Erweiterungspakete (z.B. Zenarmor, HAProxy, ACME)",
+                    reason="FreeBSD-Plugins können auf UniFi OS nicht installiert werden. Viele Funktionen (IDS/IPS, DPI, Adblock) sind in UniFi OS bereits nativ integriert.",
+                    recommendation="Integrierte Schutzfunktionen in UniFi unter 'Settings > Security > CyberSecure' (Suspicious Activity / IDS/IPS) aktivieren.",
+                    severity="info",
+                )
+            )
+
+        return omitted
 
     @staticmethod
     def _get_text(node: Optional[ET.Element], child_tag: str) -> str:

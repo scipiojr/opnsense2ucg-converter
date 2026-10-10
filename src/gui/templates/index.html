@@ -142,7 +142,7 @@
       </div>
 
       <!-- Metrics Cards -->
-      <div id="metrics-container" class="grid grid-cols-2 sm:grid-cols-5 gap-4 hidden">
+      <div id="metrics-container" class="grid grid-cols-2 sm:grid-cols-6 gap-4 hidden">
         <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
           <span class="text-xs text-slate-400 block mb-1">VLANs / Interfaces</span>
           <span id="metric-vlans" class="text-2xl font-bold text-sky-400">0</span>
@@ -163,10 +163,44 @@
           <span class="text-xs text-slate-400 block mb-1">Firewall-Filterregeln</span>
           <span id="metric-rules" class="text-2xl font-bold text-red-400">0</span>
         </div>
+        <div class="bg-slate-900 border border-amber-900/60 p-4 rounded-xl">
+          <span class="text-xs text-amber-400 block mb-1">Nicht übertragen</span>
+          <span id="metric-omitted" class="text-2xl font-bold text-amber-400">0</span>
+        </div>
       </div>
 
       <!-- Parsed Overview Tables -->
       <div id="parsed-details-container" class="space-y-6 hidden">
+        <!-- Omitted Items Section -->
+        <div id="omitted-card" class="bg-slate-900 border border-amber-900/60 rounded-xl p-5 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold flex items-center gap-2 text-amber-300">
+              <i class="fa-solid fa-triangle-exclamation text-amber-400"></i>
+              Nicht übertragene OPNsense-Elemente &amp; Manuelle Handlungsempfehlungen
+            </h3>
+            <span id="omitted-badge" class="text-xs px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700/60 font-medium">0 Elemente</span>
+          </div>
+          <p class="text-xs text-slate-400 mb-4">
+            Diese Elemente können aufgrund von Plattform-Unterschieden (FreeBSD/pf vs. UniFi OS Linux) nicht 1:1 automatisiert migriert werden.
+            Prüfen Sie die folgenden Empfehlungen, um sie bei Bedarf nativ in UniFi OS einzurichten.
+          </p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+                <tr>
+                  <th class="py-2.5 px-3">Kategorie</th>
+                  <th class="py-2.5 px-3">Element / Funktion</th>
+                  <th class="py-2.5 px-3">Grund (Nicht migriert)</th>
+                  <th class="py-2.5 px-3">UniFi Handlungsempfehlung</th>
+                </tr>
+              </thead>
+              <tbody id="omitted-tbody" class="divide-y divide-slate-800">
+                <tr><td colspan="4" class="py-4 text-center text-slate-500">Keine nicht-migrierbaren Elemente festgestellt.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
           <h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
             <i class="fa-solid fa-network-wired text-sky-400"></i> Erkannte OPNsense Interfaces &amp; VLANs
@@ -699,9 +733,32 @@
       document.getElementById('metric-aliases').innerText = s.aliases_count;
       document.getElementById('metric-nat').innerText = s.port_forwards_count;
       document.getElementById('metric-rules').innerText = s.filter_rules_count;
+      document.getElementById('metric-omitted').innerText = s.omitted_count || 0;
+      document.getElementById('omitted-badge').innerText = (s.omitted_count || 0) + ' Elemente';
 
       document.getElementById('metrics-container').classList.remove('hidden');
       document.getElementById('parsed-details-container').classList.remove('hidden');
+
+      // Omitted Items Table
+      const omittedTable = document.getElementById('omitted-tbody');
+      if (s.omitted_items && s.omitted_items.length > 0) {
+        omittedTable.innerHTML = s.omitted_items.map(o => `
+          <tr class="hover:bg-slate-800/40">
+            <td class="py-2.5 px-3">
+              <span class="px-2 py-0.5 rounded text-[11px] font-semibold ${
+                o.severity === 'action_required' ? 'bg-red-950 text-red-400 border border-red-800' :
+                o.severity === 'warning' ? 'bg-amber-950 text-amber-400 border border-amber-800' :
+                'bg-slate-800 text-slate-300'
+              }">${o.category}</span>
+            </td>
+            <td class="py-2.5 px-3 font-semibold text-slate-200">${o.name}</td>
+            <td class="py-2.5 px-3 text-slate-400 text-xs">${o.reason}</td>
+            <td class="py-2.5 px-3 text-sky-400 text-xs font-medium">${o.recommendation}</td>
+          </tr>
+        `).join('');
+      } else {
+        omittedTable.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-slate-500">Alle erkannten Konfigurationselemente konnten automatisiert übertragen werden. Keine manuellen Ausnahmen!</td></tr>`;
+      }
 
       // Interfaces Table
       const ifTable = document.getElementById('interfaces-tbody');
@@ -978,7 +1035,10 @@
           r.firewall_rules_to_create.forEach(rule => logDeploy(`  + Regel ${rule.index} [${rule.ruleset}]: ${rule.action.toUpperCase()} ${rule.name}`, 'text-slate-400'));
 
           logDeploy(`Feste IPs zuzuordnen: ${r.fixed_ips_to_assign.length}`, 'text-emerald-400');
-          logDeploy(`Port Forwards: ${r.port_forwards_to_create.length}`, 'text-amber-400');
+          if (r.omitted_items && r.omitted_items.length > 0) {
+            logDeploy(`Nicht übertragene Elemente (${r.omitted_items.length}):`, 'text-amber-400 font-bold');
+            r.omitted_items.forEach(o => logDeploy(`  ! [${o.category}] ${o.name}: ${o.recommendation}`, 'text-amber-300'));
+          }
 
           if (r.warnings.length > 0) {
             r.warnings.forEach(w => logDeploy(`WARNUNG: ${w}`, 'text-amber-400 font-bold'));

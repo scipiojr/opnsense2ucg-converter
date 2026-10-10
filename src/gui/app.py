@@ -87,6 +87,17 @@ async def process_xml(xml_content: str) -> JSONResponse:
             "aliases_count": len(state.opnsense_cfg.aliases),
             "port_forwards_count": len(state.opnsense_cfg.port_forwards),
             "filter_rules_count": len(state.opnsense_cfg.filter_rules),
+            "omitted_count": len(state.opnsense_cfg.omitted_items),
+            "omitted_items": [
+                {
+                    "category": o.category,
+                    "name": o.name,
+                    "reason": o.reason,
+                    "recommendation": o.recommendation,
+                    "severity": o.severity,
+                }
+                for o in state.opnsense_cfg.omitted_items
+            ],
             "interfaces": [
                 {
                     "id": i.id,
@@ -191,6 +202,16 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "protocol": p.protocol,
             }
             for p in state.unifi_cfg.port_forwards
+        ],
+        "omitted_items": [
+            {
+                "category": o.category,
+                "name": o.name,
+                "reason": o.reason,
+                "recommendation": o.recommendation,
+                "severity": o.severity,
+            }
+            for o in getattr(state.unifi_cfg, "omitted_items", [])
         ],
     }
 

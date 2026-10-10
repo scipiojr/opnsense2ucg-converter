@@ -29,6 +29,8 @@ def test_core_flow():
     assert res_json["success"] is True
     assert res_json["summary"]["version"] == "26.7.5"
     assert res_json["summary"]["interfaces_count"] == 6
+    assert res_json["summary"]["omitted_count"] >= 3
+    assert len(res_json["summary"]["omitted_items"]) >= 3
 
     # 2. Test Sanitization
     sanitized_xml = state.vault.sanitize_xml(xml_data)
@@ -59,6 +61,7 @@ def test_core_flow():
     assert report["dry_run"] is True
     assert len(report["networks_to_create"]) == 5
     assert len(report["fixed_ips_to_assign"]) == 8
+    assert len(report["omitted_items"]) >= 3
 
     print("SUCCESS: Core workflow and state tests passed cleanly!")
 

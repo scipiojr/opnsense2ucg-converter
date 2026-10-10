@@ -93,6 +93,11 @@ class DesktopMigratorApp(tk.Tk):
         self.notebook.add(self.tab_unifi, text="4. UniFi Zielkonfiguration")
         self._build_unifi_tab()
 
+        # Tab 5: Omitted / Manual Review
+        self.tab_omitted = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_omitted, text="5. Nicht migriert / Prüfung")
+        self._build_omitted_tab()
+
         # Status Bar
         self.status_var = tk.StringVar(value="Bereit. Bitte OPNsense config.xml öffnen.")
         status_bar = tk.Label(self, textvariable=self.status_var, relief=tk.SUNKEN, anchor="w", font=("Segoe UI", 8), bg="#e2e8f0", padx=10, pady=4)
@@ -183,6 +188,35 @@ class DesktopMigratorApp(tk.Tk):
         self.unifi_text = tk.Text(frame, wrap=tk.NONE, font=("Consolas", 9), padx=10, pady=10)
         self.unifi_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
+    def _build_omitted_tab(self):
+        frame = self.tab_omitted
+
+        lbl = ttk.Label(
+            frame,
+            text="Elemente, die nicht 1:1 automatisiert migriert werden können (inkl. UniFi Handlungsempfehlung):",
+            font=("Segoe UI", 9, "bold")
+        )
+        lbl.pack(anchor="w", padx=10, pady=8)
+
+        tree_f = ttk.Frame(frame, padding=5)
+        tree_f.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        self.omitted_tree = ttk.Treeview(tree_f, columns=("cat", "name", "reason", "rec"), show="headings", height=12)
+        self.omitted_tree.heading("cat", text="Kategorie")
+        self.omitted_tree.heading("name", text="Funktion / Element")
+        self.omitted_tree.heading("reason", text="Grund")
+        self.omitted_tree.heading("rec", text="UniFi Empfehlung")
+
+        self.omitted_tree.column("cat", width=120)
+        self.omitted_tree.column("name", width=180)
+        self.omitted_tree.column("reason", width=300)
+        self.omitted_tree.column("rec", width=320)
+
+        scrollbar = ttk.Scrollbar(tree_f, orient=tk.VERTICAL, command=self.omitted_tree.scroll)
+        self.omitted_tree.configure(yscroll=scrollbar.set)
+        self.omitted_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
     def open_file(self):
         path = filedialog.askopenfilename(filetypes=[("XML Backups", "*.xml"), ("All Files", "*.*")])
         if path:
@@ -207,6 +241,7 @@ class DesktopMigratorApp(tk.Tk):
         self.unifi_cfg = mapper.map_all(enforce_inter_vlan_block=True)
 
         # Update stats
+        omitted_count = len(self.opn_cfg.omitted_items)
         self.stats_lbl.config(
             text=(
                 f"OPNsense Version: {self.opn_cfg.version} | "
@@ -214,7 +249,8 @@ class DesktopMigratorApp(tk.Tk):
                 f"Feste DHCP-Leases: {len(self.opn_cfg.static_leases)} | "
                 f"Aliase: {len(self.opn_cfg.aliases)} | "
                 f"NAT Forwards: {len(self.opn_cfg.port_forwards)} | "
-                f"Filter-Regeln: {len(self.opn_cfg.filter_rules)}"
+                f"Filter-Regeln: {len(self.opn_cfg.filter_rules)} | "
+                f"Nicht migriert: {omitted_count}"
             )
         )
 
@@ -231,11 +267,18 @@ class DesktopMigratorApp(tk.Tk):
         for r in self.opn_cfg.filter_rules:
             self.tree.insert("", tk.END, values=("Firewall-Regel", r.descr or r.id, f"{r.interface} ({r.action.upper()})", f"{r.src} -> {r.dst}:{r.dst_port}"))
 
+        # Clear and fill Omitted Treeview
+        for row in self.omitted_tree.get_children():
+            self.omitted_tree.delete(row)
+
+        for o in self.opn_cfg.omitted_items:
+            self.omitted_tree.insert("", tk.END, values=(o.category, o.name, o.reason, o.recommendation))
+
         self.run_sanitization()
         self.generate_prompt()
         self._update_unifi_view()
 
-        self.status_var.set(f"Konfiguration erfolgreich geladen ({len(self.opn_cfg.interfaces)} Interfaces, {len(self.opn_cfg.filter_rules)} Regeln)")
+        self.status_var.set(f"Konfiguration erfolgreich geladen ({len(self.opn_cfg.interfaces)} Interfaces, {len(self.opn_cfg.filter_rules)} Regeln, {omitted_count} nicht migrierte Elemente)")
 
     def run_sanitization(self):
         if not self.raw_xml:

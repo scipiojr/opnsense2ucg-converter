@@ -51,6 +51,9 @@ class UniFiMapper:
             enforce_inter_vlan_block=enforce_inter_vlan_block,
         )
 
+        # 6. Pass Omitted / Non-migrated Items
+        target.omitted_items = list(self.cfg.omitted_items)
+
         return target
 
     def map_networks(self) -> List[UniFiNetwork]:

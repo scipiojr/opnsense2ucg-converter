@@ -191,7 +191,28 @@
       <content>1400 1443 1900</content>
       <descr>Sonos Control &amp; Discovery Ports</descr>
     </alias>
+    <alias>
+      <name>SPAM_BLOCKLIST</name>
+      <type>urltable</type>
+      <content>https://rules.emergingthreats.net/fwrules/emerging-Block-IPs.txt</content>
+      <descr>Auto-updated IP Blocklist</descr>
+    </alias>
   </aliases>
+  <wireguard>
+    <server>
+      <name>Remote_Access_WG</name>
+      <port>51820</port>
+      <pubkey>AbCdEf123456789=</pubkey>
+    </server>
+  </wireguard>
+  <unbound>
+    <hosts>
+      <host>printer</host>
+      <domain>home.arpa</domain>
+      <ip>192.168.1.50</ip>
+      <descr>Static DNS override for office printer</descr>
+    </hosts>
+  </unbound>
   <nat>
     <rule>
       <interface>wan</interface>

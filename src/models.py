@@ -78,6 +78,15 @@ class OPNsenseFilterRule:
 
 
 @dataclass
+class OmittedItem:
+    category: str                   # e.g. "VPN", "Alias", "Firewall", "Plugin", "DNS", "System"
+    name: str                       # e.g. "WireGuard Server", "URL-Table Alias"
+    reason: str                     # Why this cannot be transferred automatically
+    recommendation: str             # How to configure it natively in UniFi OS / UCG-Max
+    severity: str = "warning"       # "info", "warning", "action_required"
+
+
+@dataclass
 class OPNsenseConfig:
     version: str = ""
     interfaces: List[OPNsenseInterface] = field(default_factory=list)
@@ -86,6 +95,7 @@ class OPNsenseConfig:
     aliases: List[OPNsenseAlias] = field(default_factory=list)
     port_forwards: List[OPNsensePortForward] = field(default_factory=list)
     filter_rules: List[OPNsenseFilterRule] = field(default_factory=list)
+    omitted_items: List[OmittedItem] = field(default_factory=list)
     raw_xml: str = ""
 
 
@@ -159,3 +169,4 @@ class UniFiTargetConfig:
     firewall_rules: List[UniFiFirewallRule] = field(default_factory=list)
     fixed_ips: List[UniFiFixedIp] = field(default_factory=list)
     port_forwards: List[UniFiPortForward] = field(default_factory=list)
+    omitted_items: List[OmittedItem] = field(default_factory=list)

@@ -58,7 +58,35 @@ Die größte Gefahr beim Umstieg von OPNsense auf UniFi liegt in der **Umkehrung
 | **Gateway-Zugriffsschutz** | Unprivilegierte Netze können die Firewall-GUI nicht öffnen. | Das UCG-Max WebGUI (Port 443/80) und SSH (Port 22) lauschen auf allen Gateway-IPs. | **`LAN_LOCAL`-Härtung:** Erlaubt DNS (Port 53) und DHCP (Port 67); sperrt WebGUI/SSH für unprivilegierte VLANs. |
 | **Aliase** | Verschachtelt, URLs, FQDNs, Ports und IPs gemischt. | Strikte Trennung in `address-group` (IP/CIDR) und `port-group` (Ports). | Automatische Aufteilung und rekursive Entschachtelung. |
 | **Feste IPs (DHCP)** | Pro Schnittstelle in `<dhcpd>` oder Kea definiert. | Zentral an Client-Geräte gebunden (`/rest/user`). | Mappt MAC-Adressen, Hostnamen und statische IPs auf UniFi-Client-Objekte. |
-| **NAT & Port Forwards** | Manuelle Filterregeln + Port Redirects. | Port Forwards erstellen automatisch WAN-Freigaben. | Direkte Erstellung von Port-Forward-Objekten ohne redundante WAN-Regeln. |
+---
+
+## 🔍 100% Lokale Migration & Transparenz-Audit
+
+### Findet eine lokale Migration statt?
+**Ja, die gesamte Migration erfolgt zu 100% lokal auf Ihrem Rechner und in Ihrem lokalen Netzwerk:**
+* **Lokaler Webserver:** Das Dashboard läuft ausschließlich unter `http://127.0.0.1:8080` (bzw. als native Desktop-App).
+* **Lokale Berechnungen:** Das Parsen der XML, die Subnetz-Berechnungen und die Erzeugung der UniFi-Regeln finden offline statt.
+* **Direkte Gateway-Kommunikation:** Das Deployment kommuniziert über das lokale LAN direkt mit der REST-API Ihres UCG-Max (`https://192.168.1.1`) – ohne Ubiquiti Cloud, Drittserver oder Telemetrie.
+* **LLM ist komplett optional:** Die deterministische Übersetzungs-Engine funktioniert vollständig offline ohne KI. Falls Sie Claude oder Gemini nutzen, werden zuvor alle Passwörter und öffentlichen IPs lokal maskiert.
+
+---
+
+### Was wird übertragen – und was NICHT?
+
+Die Software trennt sauber zwischen automatisierbaren Netzwerkobjekten und plattformspezifischen Sonderfunktionen und listet alle nicht-migrierbaren Elemente in einer eigenen **Audit-Tabelle** mit konkreten Handlungsempfehlungen auf:
+
+| Bereich | Was WIRD automatisch übertragen? | Was wird NICHT übertragen? (Plattform-Unterschied) | Handlungsempfehlung in UniFi OS |
+| :--- | :--- | :--- | :--- |
+| **Netzwerk & VLANs** | Alle VLAN-IDs, Subnetze, Gateway-CIDRs, DHCP-Bereiche & DNS-Server. | *(Vollständig übertragen)* | Keine manuelle Aktion nötig. |
+| **DHCP-Reservierungen** | Alle festen Leases (MAC, IP, Hostname, Beschreibung). | *(Vollständig übertragen)* | Werden direkt als Client Fixed-IPs angelegt. |
+| **Port Forwarding (NAT)** | Alle TCP/UDP Port-Weiterleitungen auf interne Ziel-IPs. | 1:1 NAT oder komplexe Outbound-Pool-Mappings. | UniFi führt Outbound-NAT (Masquerade) auf WAN automatisch aus. |
+| **Firewall-Regeln** | Alle Filterregeln auf LAN/VLANs, Default-Deny-Inter-VLAN-Schutz, LAN_LOCAL Gateway-Schutz. | **Floating Rules** & pf-spezifische `out`-Regeln. | UniFi filtert auf `LAN_IN`. Manuelle Sonderregeln bei Bedarf als Traffic Rule anlegen. |
+| **Aliase** | Alle Host-, Netzwerk- und Port-Aliase (automatisch entschachtelt). | **Dynamische Aliase (URL-Tabellen & GeoIP).** | Länderblockaden unter *Settings > Security > Country Restrictions* aktivieren; Adblocking per integriertem DNS-Filter. |
+| **VPN-Dienste** | *(Nicht automatisiert)* | **WireGuard, OpenVPN & IPsec Tunnel.** | In UniFi OS unter *Settings > VPN > VPN Server* neu anlegen (1-Klick-WireGuard mit QR-Code). |
+| **Routing / Multi-WAN** | Standard-Routing über WAN. | **Policy-Based Routing (Gateway-Overrides in Filterregeln).** | In UniFi unter *Settings > Routing > Policy-Based Routes* (Traffic Routes) anlegen. |
+| **DNS-Server** | DHCP-DNS-Server & Hostnamen aus Leases. | **Unbound DNS-Host-Overrides außerhalb von DHCP.** | In UniFi unter *Settings > Routing > DNS Records* als A-Record eintragen. |
+| **Bandbreitenbegrenzung**| *(Nicht automatisiert)* | **Traffic Shaper Pipes & CoDel Limiter.** | Unter *Settings > Internet > WAN > Smart Queues* einfach Bandbreitenlimits eintragen. |
+| **System & Benutzer** | *(Nicht automatisiert)* | **FreeBSD-Benutzerkonten & OPNsense-Plugins (Zenarmor, HAProxy).** | Benutzer unter *Admins & Users* einladen; IDS/IPS unter *Settings > Security > CyberSecure* aktivieren. |
 
 ---
 

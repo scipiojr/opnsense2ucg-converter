@@ -109,6 +109,16 @@ class UniFiGatewayClient:
             "firewall_rules_to_create": [],
             "port_forwards_to_create": [],
             "fixed_ips_to_assign": [],
+            "omitted_items": [
+                {
+                    "category": o.category,
+                    "name": o.name,
+                    "reason": o.reason,
+                    "recommendation": o.recommendation,
+                    "severity": o.severity,
+                }
+                for o in getattr(target_config, "omitted_items", [])
+            ],
             "warnings": [],
         }
 
