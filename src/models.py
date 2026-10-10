@@ -87,6 +87,29 @@ class OmittedItem:
 
 
 @dataclass
+class OPNsenseDnsHost:
+    host: str
+    domain: str
+    ip: str
+    descr: str = ""
+
+
+@dataclass
+class OPNsenseWireGuard:
+    name: str
+    port: int = 51820
+    tunnel_address: str = "10.10.0.1/24"
+    public_key: str = ""
+    peers: List[Dict[str, str]] = field(default_factory=list)
+
+
+@dataclass
+class OPNsenseTrafficShaper:
+    down_rate_kbps: int = 0
+    up_rate_kbps: int = 0
+
+
+@dataclass
 class OPNsenseConfig:
     version: str = ""
     interfaces: List[OPNsenseInterface] = field(default_factory=list)
@@ -95,11 +118,56 @@ class OPNsenseConfig:
     aliases: List[OPNsenseAlias] = field(default_factory=list)
     port_forwards: List[OPNsensePortForward] = field(default_factory=list)
     filter_rules: List[OPNsenseFilterRule] = field(default_factory=list)
+    dns_hosts: List[OPNsenseDnsHost] = field(default_factory=list)
+    wireguard_servers: List[OPNsenseWireGuard] = field(default_factory=list)
+    traffic_shaper: Optional[OPNsenseTrafficShaper] = None
     omitted_items: List[OmittedItem] = field(default_factory=list)
     raw_xml: str = ""
 
 
 # Target UniFi Models
+
+@dataclass
+class UniFiDnsRecord:
+    key: str                        # FQDN e.g. "printer.home.arpa"
+    value: str                      # IP e.g. "192.168.1.50"
+    record_type: str = "A"
+    enabled: bool = True
+
+
+@dataclass
+class UniFiTrafficRoute:
+    name: str
+    source_network: str
+    target_gateway: str             # e.g. "WAN", "WAN2"
+    description: str = ""
+
+
+@dataclass
+class UniFiTrafficRule:
+    name: str
+    action: str = "BLOCK"           # "BLOCK" or "ALLOW"
+    target: str = "DOMAIN"          # "DOMAIN", "REGION", "APP"
+    domains: List[str] = field(default_factory=list)
+    regions: List[str] = field(default_factory=list)
+    description: str = ""
+
+
+@dataclass
+class UniFiWireGuardServer:
+    name: str
+    port: int = 51820
+    tunnel_subnet: str = "10.10.0.1/24"
+    enabled: bool = True
+    peers: List[Dict[str, str]] = field(default_factory=list)
+
+
+@dataclass
+class UniFiSmartQueue:
+    enabled: bool = False
+    down_rate_kbps: int = 0
+    up_rate_kbps: int = 0
+
 
 @dataclass
 class UniFiNetwork:
@@ -169,4 +237,9 @@ class UniFiTargetConfig:
     firewall_rules: List[UniFiFirewallRule] = field(default_factory=list)
     fixed_ips: List[UniFiFixedIp] = field(default_factory=list)
     port_forwards: List[UniFiPortForward] = field(default_factory=list)
+    dns_records: List[UniFiDnsRecord] = field(default_factory=list)
+    traffic_routes: List[UniFiTrafficRoute] = field(default_factory=list)
+    traffic_rules: List[UniFiTrafficRule] = field(default_factory=list)
+    wireguard_servers: List[UniFiWireGuardServer] = field(default_factory=list)
+    smart_queue: Optional[UniFiSmartQueue] = None
     omitted_items: List[OmittedItem] = field(default_factory=list)

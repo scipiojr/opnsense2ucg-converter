@@ -203,6 +203,40 @@ def get_unifi_config_dict() -> Dict[str, Any]:
             }
             for p in state.unifi_cfg.port_forwards
         ],
+        "dns_records": [
+            {
+                "key": r.key,
+                "value": r.value,
+                "type": r.record_type,
+            }
+            for r in getattr(state.unifi_cfg, "dns_records", [])
+        ],
+        "traffic_rules": [
+            {
+                "name": tr.name,
+                "action": tr.action,
+                "target": tr.target,
+                "domains": tr.domains,
+                "regions": tr.regions,
+            }
+            for tr in getattr(state.unifi_cfg, "traffic_rules", [])
+        ],
+        "wireguard_servers": [
+            {
+                "name": wg.name,
+                "port": wg.port,
+                "tunnel_subnet": wg.tunnel_subnet,
+            }
+            for wg in getattr(state.unifi_cfg, "wireguard_servers", [])
+        ],
+        "smart_queue": (
+            {
+                "enabled": sq.enabled,
+                "down_rate_kbps": sq.down_rate_kbps,
+                "up_rate_kbps": sq.up_rate_kbps,
+            }
+            if (sq := getattr(state.unifi_cfg, "smart_queue", None)) else None
+        ),
         "omitted_items": [
             {
                 "category": o.category,

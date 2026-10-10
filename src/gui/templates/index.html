@@ -496,6 +496,49 @@
           </div>
         </div>
       </div>
+
+      <!-- Extended UniFi Services (DNS Records, WireGuard Blueprint, Smart Queues) -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 class="text-sm font-semibold mb-3 flex items-center gap-2 text-sky-400">
+            <i class="fa-solid fa-dns"></i> Statische DNS-Einträge (A-Records aus Unbound)
+          </h3>
+          <div class="overflow-x-auto max-h-60 overflow-y-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40 sticky top-0">
+                <tr>
+                  <th class="py-2 px-3">Hostname (FQDN)</th>
+                  <th class="py-2 px-3">Ziel-IP</th>
+                  <th class="py-2 px-3">Typ</th>
+                </tr>
+              </thead>
+              <tbody id="unifi-dns-tbody" class="divide-y divide-slate-800">
+                <tr><td colspan="3" class="py-3 text-center text-slate-500">Keine Host-Overrides gefunden.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 class="text-sm font-semibold mb-3 flex items-center gap-2 text-indigo-400">
+            <i class="fa-solid fa-bolt"></i> Erweiterte UniFi-Dienste (WireGuard, QoS, Traffic Rules)
+          </h3>
+          <div class="space-y-2 text-xs text-slate-300">
+            <div class="p-2.5 rounded bg-slate-950 border border-slate-800 flex justify-between items-center">
+              <span>WireGuard Server Blueprint:</span>
+              <span id="unifi-wg-blueprint" class="font-mono text-emerald-400">Automatisch vorbereitet</span>
+            </div>
+            <div class="p-2.5 rounded bg-slate-950 border border-slate-800 flex justify-between items-center">
+              <span>WAN Smart Queues (FQ-CoDel):</span>
+              <span id="unifi-smartqueue-val" class="font-mono text-sky-400">Inaktiv / Automatisch</span>
+            </div>
+            <div class="p-2.5 rounded bg-slate-950 border border-slate-800 flex justify-between items-center">
+              <span>Traffic Rules (URL/Domain Sperren):</span>
+              <span id="unifi-traffic-rules-count" class="font-mono text-amber-400">0 Regeln</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- TAB 5: UCG-MAX ROLLOUT -->
@@ -848,6 +891,37 @@
           <td class="py-2 px-3 text-slate-400">${f.network_name}</td>
         </tr>
       `).join('');
+
+      // DNS Records
+      const dnsTbody = document.getElementById('unifi-dns-tbody');
+      if (u.dns_records && u.dns_records.length > 0) {
+        dnsTbody.innerHTML = u.dns_records.map(d => `
+          <tr class="hover:bg-slate-800/40">
+            <td class="py-2 px-3 font-mono text-sky-300">${d.key}</td>
+            <td class="py-2 px-3 font-mono text-emerald-400">${d.value}</td>
+            <td class="py-2 px-3 font-mono text-slate-400">${d.type}</td>
+          </tr>
+        `).join('');
+      } else {
+        dnsTbody.innerHTML = `<tr><td colspan="3" class="py-3 text-center text-slate-500">Keine statischen DNS Host-Overrides gefunden.</td></tr>`;
+      }
+
+      // Extended Services
+      if (u.wireguard_servers && u.wireguard_servers.length > 0) {
+        const wg = u.wireguard_servers[0];
+        document.getElementById('unifi-wg-blueprint').innerText = `${wg.name} (Port ${wg.port}, ${wg.tunnel_subnet})`;
+      } else {
+        document.getElementById('unifi-wg-blueprint').innerText = 'Kein WireGuard in OPNsense';
+      }
+
+      if (u.smart_queue && u.smart_queue.enabled) {
+        document.getElementById('unifi-smartqueue-val').innerText = `${u.smart_queue.down_rate_kbps} kbps Down / ${u.smart_queue.up_rate_kbps} kbps Up`;
+      } else {
+        document.getElementById('unifi-smartqueue-val').innerText = 'Standard / Automatisch';
+      }
+
+      const trCount = (u.traffic_rules ? u.traffic_rules.length : 0);
+      document.getElementById('unifi-traffic-rules-count').innerText = `${trCount} Traffic Rules (Domain/Region)`;
     }
 
     // Sanitization Trigger

@@ -79,14 +79,14 @@ Die Software trennt sauber zwischen automatisierbaren Netzwerkobjekten und platt
 | :--- | :--- | :--- | :--- |
 | **Netzwerk & VLANs** | Alle VLAN-IDs, Subnetze, Gateway-CIDRs, DHCP-Bereiche & DNS-Server. | *(Vollständig übertragen)* | Keine manuelle Aktion nötig. |
 | **DHCP-Reservierungen** | Alle festen Leases (MAC, IP, Hostname, Beschreibung). | *(Vollständig übertragen)* | Werden direkt als Client Fixed-IPs angelegt. |
+| **DNS-Records (Unbound)** | DHCP-Hostnamen sowie **Unbound DNS Host Overrides** (A-Records, FQDNs). | *(Vollständig übertragen)* | Werden automatisch via `/rest/dnsrecord` angelegt. |
 | **Port Forwarding (NAT)** | Alle TCP/UDP Port-Weiterleitungen auf interne Ziel-IPs. | 1:1 NAT oder komplexe Outbound-Pool-Mappings. | UniFi führt Outbound-NAT (Masquerade) auf WAN automatisch aus. |
-| **Firewall-Regeln** | Alle Filterregeln auf LAN/VLANs, Default-Deny-Inter-VLAN-Schutz, LAN_LOCAL Gateway-Schutz. | **Floating Rules** & pf-spezifische `out`-Regeln. | UniFi filtert auf `LAN_IN`. Manuelle Sonderregeln bei Bedarf als Traffic Rule anlegen. |
-| **Aliase** | Alle Host-, Netzwerk- und Port-Aliase (automatisch entschachtelt). | **Dynamische Aliase (URL-Tabellen & GeoIP).** | Länderblockaden unter *Settings > Security > Country Restrictions* aktivieren; Adblocking per integriertem DNS-Filter. |
-| **VPN-Dienste** | *(Nicht automatisiert)* | **WireGuard, OpenVPN & IPsec Tunnel.** | In UniFi OS unter *Settings > VPN > VPN Server* neu anlegen (1-Klick-WireGuard mit QR-Code). |
+| **Firewall & Traffic Rules** | Alle Filterregeln auf LAN/VLANs, Default-Deny-Schutz, LAN_LOCAL Gateway-Schutz, sowie **URL-/GeoIP-Aliase als Traffic Rules**. | **Floating Rules** & pf-spezifische `out`-Regeln. | UniFi filtert auf `LAN_IN`. Manuelle Sonderregeln bei Bedarf als Traffic Rule anpassen. |
+| **Aliase** | Alle Host-, Netzwerk- und Port-Aliase (automatisch entschachtelt) + URL-Table/GeoIP Aliase. | *(Vollständig übertragen)* | Keine manuelle Aktion nötig. |
+| **VPN-Dienste** | **WireGuard Server-Blueprint** (Listen-Port, Server-Subnetz, Peer-Vorlagen). | **OpenVPN & IPsec Tunnel** (Architektur-Inkompatibilität). | WireGuard wird vorbereitet; OpenVPN/IPsec in UniFi OS unter *Settings > VPN* oder per Teleport (1-Klick) nutzen. |
+| **Bandbreitenbegrenzung**| **Traffic Shaper Pipes & CoDel Limiter** werden automatisch in **UniFi Smart Queues (WAN Up/Down Limits)** übersetzt. | Queue-Scheduling-Gewichtungen (Fair-Queueing). | Smart Queues regeln Bufferbloat im UCG-Max hardwarenah. |
 | **Routing / Multi-WAN** | Standard-Routing über WAN. | **Policy-Based Routing (Gateway-Overrides in Filterregeln).** | In UniFi unter *Settings > Routing > Policy-Based Routes* (Traffic Routes) anlegen. |
-| **DNS-Server** | DHCP-DNS-Server & Hostnamen aus Leases. | **Unbound DNS-Host-Overrides außerhalb von DHCP.** | In UniFi unter *Settings > Routing > DNS Records* als A-Record eintragen. |
-| **Bandbreitenbegrenzung**| *(Nicht automatisiert)* | **Traffic Shaper Pipes & CoDel Limiter.** | Unter *Settings > Internet > WAN > Smart Queues* einfach Bandbreitenlimits eintragen. |
-| **System & Benutzer** | *(Nicht automatisiert)* | **FreeBSD-Benutzerkonten & OPNsense-Plugins (Zenarmor, HAProxy).** | Benutzer unter *Admins & Users* einladen; IDS/IPS unter *Settings > Security > CyberSecure* aktivieren. |
+| **System & Benutzer** | *(Prinzipbedingt nicht übertragbar)* | **FreeBSD-Benutzerkonten & OPNsense-Plugins (Zenarmor, HAProxy).** | Benutzer unter *Admins & Users* einladen; IDS/IPS unter *Settings > Security > CyberSecure* aktivieren. |
 
 ---
 

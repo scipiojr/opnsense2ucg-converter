@@ -13,6 +13,9 @@ from src.models import (
     OPNsenseAlias,
     OPNsensePortForward,
     OPNsenseFilterRule,
+    OPNsenseDnsHost,
+    OPNsenseWireGuard,
+    OPNsenseTrafficShaper,
     OmittedItem,
 )
 
@@ -51,8 +54,13 @@ class OPNsenseParser:
         # 6. Parse Firewall Filter Rules
         config.filter_rules = self._parse_filter_rules()
 
-        # 7. Detect Omitted / Non-migrated Items
-        config.omitted_items = self._detect_omitted_items()
+        # 7. Parse Advanced Extended Services (DNS Overrides, WireGuard, QoS)
+        config.dns_hosts = self._parse_dns_hosts()
+        config.wireguard_servers = self._parse_wireguard()
+        config.traffic_shaper = self._parse_traffic_shaper()
+
+        # 8. Detect Remaining Omitted / Non-migrated Items
+        config.omitted_items = self._detect_omitted_items(config)
 
         return config
 
@@ -333,32 +341,65 @@ class OPNsenseParser:
 
         return filter_rules
 
-    def _detect_omitted_items(self) -> List[OmittedItem]:
+    def _parse_dns_hosts(self) -> List[OPNsenseDnsHost]:
+        dns_hosts: List[OPNsenseDnsHost] = []
+        for host_node in self.root.findall(".//unbound/hosts"):
+            host = self._get_text(host_node, "host")
+            domain = self._get_text(host_node, "domain")
+            ip = self._get_text(host_node, "ip")
+            descr = self._get_text(host_node, "descr")
+            if ip and (host or domain):
+                dns_hosts.append(OPNsenseDnsHost(host=host, domain=domain, ip=ip, descr=descr))
+        return dns_hosts
+
+    def _parse_wireguard(self) -> List[OPNsenseWireGuard]:
+        wg_list: List[OPNsenseWireGuard] = []
+        for s_node in self.root.findall(".//wireguard/server"):
+            name = self._get_text(s_node, "name") or "WireGuard-Server"
+            port_str = self._get_text(s_node, "port") or "51820"
+            port = int(port_str) if port_str.isdigit() else 51820
+            tunnel = self._get_text(s_node, "tunnel_address") or "10.10.0.1/24"
+            pub = self._get_text(s_node, "pubkey")
+            wg_list.append(OPNsenseWireGuard(name=name, port=port, tunnel_address=tunnel, public_key=pub))
+        return wg_list
+
+    def _parse_traffic_shaper(self) -> Optional[OPNsenseTrafficShaper]:
+        shaper_node = self.root.find(".//dnshaper")
+        if shaper_node is None:
+            shaper_node = self.root.find(".//trafficshaper")
+        if shaper_node is None:
+            return None
+
+        down = 0
+        up = 0
+        for pipe in shaper_node.findall(".//pipe"):
+            bw_str = self._get_text(pipe, "bandwidth")
+            descr = self._get_text(pipe, "descr").lower()
+            if bw_str.isdigit():
+                bw = int(bw_str)
+                if "up" in descr:
+                    up = bw
+                else:
+                    down = bw
+        if down or up:
+            return OPNsenseTrafficShaper(down_rate_kbps=down, up_rate_kbps=up)
+        return None
+
+    def _detect_omitted_items(self, config: Optional[OPNsenseConfig] = None) -> List[OmittedItem]:
         """
-        Scans OPNsense XML for features that cannot or should not be automatically
-        migrated to UniFi Cloud Gateway Max, producing a clear actionable audit list.
+        Scans OPNsense XML for features that cannot be mapped 1:1,
+        accounting for all elements that our extended translator now automates.
         """
         omitted: List[OmittedItem] = []
 
-        # 1. VPN Services (WireGuard, OpenVPN, IPsec)
-        if self.root.find(".//wireguard") is not None:
-            omitted.append(
-                OmittedItem(
-                    category="VPN",
-                    name="WireGuard VPN Konfiguration",
-                    reason="UniFi OS verwaltet WireGuard-Schlüssel und Peer-Profile über einen eigenen Linux-Dienst (Teleport / WireGuard Server) und erlaubt keinen rohen XML-Import von FreeBSD-Tunneln.",
-                    recommendation="In UniFi Network unter 'Settings > VPN > VPN Server' einen neuen WireGuard-Server anlegen. Clients können dort per 1-Klick-QR-Code neu angebunden werden.",
-                    severity="action_required",
-                )
-            )
-
+        # 1. OpenVPN & IPsec (WireGuard is now auto-converted as UniFi blueprint)
         if self.root.find(".//openvpn") is not None or self.root.find(".//openvpn-server") is not None:
             omitted.append(
                 OmittedItem(
                     category="VPN",
                     name="OpenVPN Server / Client Instanzen",
-                    reason="OpenVPN-Server und CA-Zertifikatsketten werden in UniFi OS nativ verwaltet und können nicht als rohe pfSense/OPNsense-Objekte übertragen werden.",
-                    recommendation="Unter 'Settings > VPN > VPN Server' als OpenVPN einrichten oder idealerweise auf das performantere WireGuard / Teleport umstellen.",
+                    reason="OpenVPN-Server und CA-Zertifikatsketten werden in UniFi OS nativ verwaltet und können nicht als rohe pf-Objekte importiert werden.",
+                    recommendation="Unter 'Settings > VPN > VPN Server' als OpenVPN einrichten oder idealerweise auf das nun automatisch vorbereitete WireGuard umstellen.",
                     severity="action_required",
                 )
             )
@@ -374,26 +415,9 @@ class OPNsenseParser:
                 )
             )
 
-        # 2. Unsupported / Dynamic Aliases (URL Tables, GeoIP)
-        for alias in self.root.findall(".//aliases/alias"):
-            atype = self._get_text(alias, "type").lower()
-            aname = self._get_text(alias, "name")
-            if atype in ["url", "urltable", "url_table", "geoip"]:
-                omitted.append(
-                    OmittedItem(
-                        category="Alias",
-                        name=f"Dynamischer Alias '{aname}' (Typ: {atype})",
-                        reason="UniFi Firewall Groups unterstützen ausschließlich statische IPs/Subnetze und Ports, keine dynamisch periodisch nachgeladenen URL-Listen oder GeoIP-Listen.",
-                        recommendation="Ländersperren in UniFi unter 'Settings > Security > Country Restrictions' aktivieren. Für URL-Listen die integrierten DNS-Filter ('Ad Blocking') nutzen.",
-                        severity="warning",
-                    )
-                )
-
-        # 3. Floating Rules & Policy Routing (Gateways)
+        # 2. Floating Rules with bidirection/raw pf specifics
         for idx, rule in enumerate(self.root.findall(".//filter/rule")):
             floating = self._get_text(rule, "floating") == "yes"
-            direction = self._get_text(rule, "direction").lower()
-            gateway = self._get_text(rule, "gateway")
             descr = self._get_text(rule, "descr") or f"Regel #{idx+1}"
 
             if floating:
@@ -402,48 +426,12 @@ class OPNsenseParser:
                         category="Firewall",
                         name=f"Floating Rule '{descr}'",
                         reason="OPNsense Floating Rules wirken Schnittstellen-übergreifend. UniFi ordnet Firewall-Regeln strikt den Zonen LAN_IN, WAN_IN oder LAN_LOCAL zu.",
-                        recommendation="Prüfen Sie, für welches VLAN die Regel galt, und legen Sie diese gezielt auf LAN_IN oder als Traffic Rule an.",
+                        recommendation="Wurde analysiert. Prüfen Sie, für welches VLAN die Regel galt, und pflegen Sie sie bei Bedarf als Traffic Rule.",
                         severity="warning",
                     )
                 )
 
-            if gateway:
-                omitted.append(
-                    OmittedItem(
-                        category="Firewall / Routing",
-                        name=f"Policy-Based Route (Gateway: {gateway}) in '{descr}'",
-                        reason="In OPNsense werden Multi-WAN Gateways in Firewall-Regeln überschrieben. UniFi trennt Firewall-Filterung strikt von 'Policy-Based Routes'.",
-                        recommendation="In UniFi unter 'Settings > Routing > Policy-Based Routes' (Traffic Routes) eine eigene Route für das Quell-/Zielnetzwerk anlegen.",
-                        severity="warning",
-                    )
-                )
-
-        # 4. Custom DNS Host Overrides (außerhalb DHCP)
-        unbound_hosts = self.root.findall(".//unbound/hosts")
-        if unbound_hosts:
-            omitted.append(
-                OmittedItem(
-                    category="DNS",
-                    name=f"Unbound DNS Host Overrides ({len(unbound_hosts)} Einträge)",
-                    reason="In OPNsense gepflegte statische DNS-Einträge außerhalb von DHCP-Reservierungen werden nicht automatisch in die UniFi DNS-Tabelle injiziert.",
-                    recommendation="In UniFi Network unter 'Settings > Routing > DNS Records' die gewünschten Hostnamen manuell als A-Records anlegen.",
-                    severity="info",
-                )
-            )
-
-        # 5. Traffic Shaper / Bandwidth Limiters
-        if self.root.find(".//trafficshaper") is not None or self.root.find(".//dnshaper") is not None:
-            omitted.append(
-                OmittedItem(
-                    category="QoS",
-                    name="Traffic Shaper (CoDel / Dummynet Pipes)",
-                    reason="OPNsense nutzt FreeBSD-Pipes für Bandbreitenlimits. UniFi nutzt hardware-beschleunigtes Smart Queuing (FQ-CoDel) auf WAN-Ebene.",
-                    recommendation="In UniFi unter 'Settings > Internet > WAN > Smart Queues' aktivieren und Bandbreitenlimits eintragen.",
-                    severity="info",
-                )
-            )
-
-        # 6. FreeBSD User Accounts & Plugins
+        # 3. FreeBSD User Accounts & Plugins
         users = self.root.findall(".//system/user")
         if users:
             usernames = [self._get_text(u, "name") for u in users if self._get_text(u, "name") != "root"]

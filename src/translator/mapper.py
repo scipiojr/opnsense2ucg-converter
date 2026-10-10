@@ -21,6 +21,11 @@ from src.models import (
     UniFiFirewallRule,
     UniFiFixedIp,
     UniFiPortForward,
+    UniFiDnsRecord,
+    UniFiTrafficRoute,
+    UniFiTrafficRule,
+    UniFiWireGuardServer,
+    UniFiSmartQueue,
 )
 
 
@@ -51,7 +56,13 @@ class UniFiMapper:
             enforce_inter_vlan_block=enforce_inter_vlan_block,
         )
 
-        # 6. Pass Omitted / Non-migrated Items
+        # 6. Map Extended Services (DNS Records, Traffic Rules, WireGuard, Smart Queues)
+        target.dns_records = self.map_dns_records()
+        target.traffic_rules = self.map_traffic_rules()
+        target.wireguard_servers = self.map_wireguard()
+        target.smart_queue = self.map_smart_queue()
+
+        # 7. Pass Remaining Omitted Items
         target.omitted_items = list(self.cfg.omitted_items)
 
         return target
@@ -405,3 +416,60 @@ class UniFiMapper:
         elif proto_lower in ["tcp/udp", "tcp_udp"]:
             return "tcp_udp"
         return "all"
+
+    def map_dns_records(self) -> List[UniFiDnsRecord]:
+        records: List[UniFiDnsRecord] = []
+        for h in getattr(self.cfg, "dns_hosts", []):
+            fqdn = f"{h.host}.{h.domain}" if h.host and h.domain else (h.host or h.domain)
+            if fqdn and h.ip:
+                records.append(UniFiDnsRecord(key=fqdn, value=h.ip, record_type="A", enabled=True))
+        return records
+
+    def map_traffic_rules(self) -> List[UniFiTrafficRule]:
+        traffic_rules: List[UniFiTrafficRule] = []
+        for alias in self.cfg.aliases:
+            atype = alias.type.lower()
+            if atype in ["url", "urltable", "url_table"]:
+                traffic_rules.append(
+                    UniFiTrafficRule(
+                        name=f"Block-{alias.name}",
+                        action="BLOCK",
+                        target="DOMAIN",
+                        domains=alias.content,
+                        description=f"Auto-migrated from OPNsense URL/Table alias '{alias.name}'",
+                    )
+                )
+            elif atype == "geoip":
+                traffic_rules.append(
+                    UniFiTrafficRule(
+                        name=f"CountryBlock-{alias.name}",
+                        action="BLOCK",
+                        target="REGION",
+                        regions=alias.content,
+                        description=f"Auto-migrated from OPNsense GeoIP alias '{alias.name}'",
+                    )
+                )
+        return traffic_rules
+
+    def map_wireguard(self) -> List[UniFiWireGuardServer]:
+        servers: List[UniFiWireGuardServer] = []
+        for wg in getattr(self.cfg, "wireguard_servers", []):
+            servers.append(
+                UniFiWireGuardServer(
+                    name=wg.name,
+                    port=wg.port,
+                    tunnel_subnet=wg.tunnel_address,
+                    enabled=True,
+                )
+            )
+        return servers
+
+    def map_smart_queue(self) -> Optional[UniFiSmartQueue]:
+        shaper = getattr(self.cfg, "traffic_shaper", None)
+        if shaper and (shaper.down_rate_kbps > 0 or shaper.up_rate_kbps > 0):
+            return UniFiSmartQueue(
+                enabled=True,
+                down_rate_kbps=shaper.down_rate_kbps,
+                up_rate_kbps=shaper.up_rate_kbps,
+            )
+        return None

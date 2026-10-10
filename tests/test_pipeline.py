@@ -27,11 +27,10 @@ def test_parser_and_mapper():
     assert len(opn_cfg.aliases) == 5, f"Expected 5 aliases, got {len(opn_cfg.aliases)}"
     assert len(opn_cfg.port_forwards) == 2, f"Expected 2 port forwards, got {len(opn_cfg.port_forwards)}"
     assert len(opn_cfg.filter_rules) == 6, f"Expected 6 filter rules, got {len(opn_cfg.filter_rules)}"
-    assert len(opn_cfg.omitted_items) >= 3, f"Expected at least 3 omitted items, got {len(opn_cfg.omitted_items)}"
+    assert len(opn_cfg.omitted_items) >= 2, f"Expected at least 2 omitted items, got {len(opn_cfg.omitted_items)}"
     omitted_cats = [o.category for o in opn_cfg.omitted_items]
     assert "VPN" in omitted_cats
-    assert "Alias" in omitted_cats
-    assert "DNS" in omitted_cats
+    assert "Plugins" in omitted_cats
 
     # 2. Test Sanitizer
     vault = SanitizerVault(anonymize_macs=False)

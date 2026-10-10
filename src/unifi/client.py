@@ -109,6 +109,22 @@ class UniFiGatewayClient:
             "firewall_rules_to_create": [],
             "port_forwards_to_create": [],
             "fixed_ips_to_assign": [],
+            "dns_records_to_create": [
+                {"key": r.key, "value": r.value, "type": r.record_type}
+                for r in getattr(target_config, "dns_records", [])
+            ],
+            "traffic_rules_to_create": [
+                {"name": tr.name, "action": tr.action, "target": tr.target}
+                for tr in getattr(target_config, "traffic_rules", [])
+            ],
+            "wireguard_servers_to_create": [
+                {"name": wg.name, "port": wg.port, "tunnel": wg.tunnel_subnet}
+                for wg in getattr(target_config, "wireguard_servers", [])
+            ],
+            "smart_queue": (
+                {"enabled": sq.enabled, "down_kbps": sq.down_rate_kbps, "up_kbps": sq.up_rate_kbps}
+                if (sq := getattr(target_config, "smart_queue", None)) else None
+            ),
             "omitted_items": [
                 {
                     "category": o.category,
@@ -242,7 +258,55 @@ class UniFiGatewayClient:
             except Exception as e:
                 results["errors"].append(f"Fixed IP '{fip.name} ({fip.mac})' error: {str(e)}")
 
+        # Step 6: Create Static DNS Records
+        results["created_dns_records"] = 0
+        for dns_rec in getattr(target_config, "dns_records", []):
+            try:
+                self._create_dns_record(dns_rec)
+                results["created_dns_records"] += 1
+            except Exception as e:
+                results["errors"].append(f"DNS Record '{dns_rec.key}' error: {str(e)}")
+
+        # Step 7: Create Traffic Rules (Domain / Region blocking)
+        results["created_traffic_rules"] = 0
+        for tr in getattr(target_config, "traffic_rules", []):
+            try:
+                self._create_traffic_rule(tr)
+                results["created_traffic_rules"] += 1
+            except Exception as e:
+                results["errors"].append(f"Traffic Rule '{tr.name}' error: {str(e)}")
+
         return results
+
+    def _create_dns_record(self, rec) -> str:
+        url = f"{self.api_prefix}/rest/dnsrecord"
+        payload = {
+            "key": rec.key,
+            "record_type": rec.record_type,
+            "value": rec.value,
+            "enabled": rec.enabled,
+        }
+        res = self.session.post(url, json=payload, timeout=10)
+        if res.status_code in [200, 201]:
+            data = res.json().get("data", [{}])[0]
+            return data.get("_id", "")
+        raise RuntimeError(f"HTTP {res.status_code}: {res.text}")
+
+    def _create_traffic_rule(self, tr) -> str:
+        url = f"{self.api_prefix}/rest/trafficrule"
+        payload = {
+            "description": tr.name,
+            "action": tr.action.lower(),
+            "target": tr.target.lower(),
+            "domains": tr.domains,
+            "regions": tr.regions,
+            "enabled": True,
+        }
+        res = self.session.post(url, json=payload, timeout=10)
+        if res.status_code in [200, 201]:
+            data = res.json().get("data", [{}])[0]
+            return data.get("_id", "")
+        raise RuntimeError(f"HTTP {res.status_code}: {res.text}")
 
     def _create_network(self, net: UniFiNetwork) -> str:
         url = f"{self.api_prefix}/rest/networkconf"

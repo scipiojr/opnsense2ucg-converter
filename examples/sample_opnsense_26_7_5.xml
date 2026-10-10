@@ -313,4 +313,15 @@
       <descr>Isolate Cameras from Internet</descr>
     </rule>
   </filter>
+  <openvpn>
+    <openvpn-server>
+      <vpnid>1</vpnid>
+      <description>Legacy SSL VPN</description>
+    </openvpn-server>
+  </openvpn>
+  <installedpackages>
+    <package>
+      <name>os-zenarmor</name>
+    </package>
+  </installedpackages>
 </opnsense>
