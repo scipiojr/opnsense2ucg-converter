@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OPNsense zu UniFi Cloud Gateway Max Migrator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+            },
+            unifi: '#006fff',
+            opn: '#e53e3e'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { background-color: #0b1120; color: #f1f5f9; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; }
+    .tab-active { border-bottom: 3px solid #38bdf8; color: #38bdf8; font-weight: 600; }
+    .tab-inactive { border-bottom: 3px solid transparent; color: #94a3b8; }
+    .tab-inactive:hover { color: #e2e8f0; }
+    pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-lg bg-gradient-to-tr from-red-600 via-indigo-600 to-blue-500 flex items-center justify-center shadow-lg">
+          <i class="fa-solid fa-network-wired text-white text-lg"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold flex items-center gap-2">
+            <span>OPNsense</span>
+            <span class="text-xs px-2 py-0.5 rounded bg-red-900/50 text-red-300 border border-red-700/50">26.7.5</span>
+            <i class="fa-solid fa-arrow-right text-xs text-slate-400"></i>
+            <span class="text-sky-400">Cloud Gateway Max</span>
+          </h1>
+          <p class="text-xs text-slate-400">Automatisierte Konfigurations- & Sicherheits-Migration (VLANs, NAT, Firewall, DHCP, Aliase)</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-3">
+        <button onclick="loadSampleConfig()" class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition">
+          <i class="fa-solid fa-flask text-amber-400"></i> Demo-Daten laden
+        </button>
+        <button onclick="downloadUnifiJson()" class="text-xs bg-sky-600 hover:bg-sky-500 text-white px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium shadow-sm transition">
+          <i class="fa-solid fa-download"></i> UniFi JSON Export
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="border-b border-slate-800 bg-slate-900/40">
+    <div class="max-w-7xl mx-auto px-4 flex space-x-8 text-sm">
+      <button onclick="switchTab('import')" id="tab-btn-import" class="py-3 px-1 tab-active flex items-center gap-2">
+        <i class="fa-solid fa-file-import"></i> 1. Import & OPNsense Analyse
+      </button>
+      <button onclick="switchTab('sanitize')" id="tab-btn-sanitize" class="py-3 px-1 tab-inactive flex items-center gap-2">
+        <i class="fa-solid fa-shield-halved"></i> 2. Datenschutz & Anonymisierung
+      </button>
+      <button onclick="switchTab('llm')" id="tab-btn-llm" class="py-3 px-1 tab-inactive flex items-center gap-2">
+        <i class="fa-solid fa-brain"></i> 3. LLM Regel-Übersetzer
+      </button>
+      <button onclick="switchTab('review')" id="tab-btn-review" class="py-3 px-1 tab-inactive flex items-center gap-2">
+        <i class="fa-solid fa-sliders"></i> 4. UniFi Konfig Review
+      </button>
+      <button onclick="switchTab('deploy')" id="tab-btn-deploy" class="py-3 px-1 tab-inactive flex items-center gap-2">
+        <i class="fa-solid fa-rocket"></i> 5. UCG-Max Rollout
+      </button>
+      <button onclick="switchTab('hardware')" id="tab-btn-hardware" class="py-3 px-1 tab-inactive flex items-center gap-2">
+        <i class="fa-solid fa-diagram-project"></i> 6. APs & Switch Roadmap
+      </button>
+    </div>
+  </nav>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+
+    <!-- TAB 1: IMPORT & OPNSENSE ANALYSE -->
+    <div id="tab-import" class="space-y-6">
+      <!-- Upload Card -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="md:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+          <h2 class="text-base font-semibold mb-2 flex items-center gap-2">
+            <i class="fa-solid fa-upload text-sky-400"></i> OPNsense config.xml importieren
+          </h2>
+          <p class="text-xs text-slate-400 mb-4">Laden Sie das Backup Ihrer OPNsense (unter <em>System &gt; Configuration &gt; Backups</em> heruntergeladen) hier hoch oder fügen Sie den Inhalt ein.</p>
+          
+          <div id="drop-zone" class="border-2 border-dashed border-slate-700 hover:border-sky-500 rounded-lg p-6 text-center cursor-pointer bg-slate-950/50 transition">
+            <i class="fa-solid fa-file-code text-3xl text-slate-500 mb-2"></i>
+            <p class="text-sm font-medium text-slate-200">Klicken oder XML-Datei hierher ziehen</p>
+            <p class="text-xs text-slate-500 mt-1">Unterstützt OPNsense 26.x, 25.x, 24.x XML Exports</p>
+            <input type="file" id="file-input" class="hidden" accept=".xml">
+          </div>
+
+          <div class="mt-4 flex justify-between items-center">
+            <button onclick="loadSampleConfig()" class="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1">
+              <i class="fa-solid fa-bolt"></i> Oder Demo-Szenario mit 5 VLANs &amp; Firewall-Regeln laden
+            </button>
+            <button onclick="parseXmlInput()" class="bg-sky-600 hover:bg-sky-500 text-white text-xs px-4 py-2 rounded-lg font-medium transition flex items-center gap-1.5">
+              <i class="fa-solid fa-magnifying-glass"></i> Konfiguration parsen
+            </button>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+          <div>
+            <h3 class="text-sm font-semibold mb-2 text-slate-300">Wichtige Migrations-Fakten</h3>
+            <ul class="text-xs space-y-2.5 text-slate-400">
+              <li class="flex items-start gap-2">
+                <i class="fa-solid fa-triangle-exclamation text-amber-400 mt-0.5"></i>
+                <span><strong>Default Policy Umkehr:</strong> OPNsense blockiert per Default zwischen VLANs. UniFi erlaubt per Default allen internen Traffic!</span>
+              </li>
+              <li class="flex items-start gap-2">
+                <i class="fa-solid fa-circle-check text-emerald-400 mt-0.5"></i>
+                <span><strong>Automatische Absicherung:</strong> Das Tool injiziert automatisch eine RFC1918 Block-Regel auf LAN_IN.</span>
+              </li>
+              <li class="flex items-start gap-2">
+                <i class="fa-solid fa-shield-virus text-indigo-400 mt-0.5"></i>
+                <span><strong>Datenschutz:</strong> Passwörter, Hashes &amp; Public IPs werden vor jedem LLM-Call lokal maskiert.</span>
+              </li>
+            </ul>
+          </div>
+          <div class="bg-slate-950 p-3 rounded-lg border border-slate-800/80 text-[11px] text-slate-400 mt-4">
+            Ziel-Hardware: <strong>UniFi Cloud Gateway Max (UCG-Max)</strong> mit bis zu 2.5G Routing &amp; integriertem UniFi OS Controller.
+          </div>
+        </div>
+      </div>
+
+      <!-- Metrics Cards -->
+      <div id="metrics-container" class="grid grid-cols-2 sm:grid-cols-5 gap-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+          <span class="text-xs text-slate-400 block mb-1">VLANs / Interfaces</span>
+          <span id="metric-vlans" class="text-2xl font-bold text-sky-400">0</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+          <span class="text-xs text-slate-400 block mb-1">Feste DHCP-Leases</span>
+          <span id="metric-dhcp" class="text-2xl font-bold text-emerald-400">0</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+          <span class="text-xs text-slate-400 block mb-1">Aliase / Gruppen</span>
+          <span id="metric-aliases" class="text-2xl font-bold text-purple-400">0</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+          <span class="text-xs text-slate-400 block mb-1">NAT Port Forwards</span>
+          <span id="metric-nat" class="text-2xl font-bold text-amber-400">0</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+          <span class="text-xs text-slate-400 block mb-1">Firewall-Filterregeln</span>
+          <span id="metric-rules" class="text-2xl font-bold text-red-400">0</span>
+        </div>
+      </div>
+
+      <!-- Parsed Overview Tables -->
+      <div id="parsed-details-container" class="space-y-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-network-wired text-sky-400"></i> Erkannte OPNsense Interfaces &amp; VLANs
+          </h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+                <tr>
+                  <th class="py-2.5 px-3">Interface</th>
+                  <th class="py-2.5 px-3">Name / Beschreibung</th>
+                  <th class="py-2.5 px-3">Physikalisches Gerät</th>
+                  <th class="py-2.5 px-3">VLAN Tag</th>
+                  <th class="py-2.5 px-3">IP / Subnetz</th>
+                </tr>
+              </thead>
+              <tbody id="interfaces-tbody" class="divide-y divide-slate-800"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-server text-emerald-400"></i> Feste DHCP-Reservierungen (Static Leases)
+          </h3>
+          <div class="overflow-x-auto max-h-60 overflow-y-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40 sticky top-0">
+                <tr>
+                  <th class="py-2.5 px-3">MAC-Adresse</th>
+                  <th class="py-2.5 px-3">IP-Adresse</th>
+                  <th class="py-2.5 px-3">Hostname</th>
+                  <th class="py-2.5 px-3">Beschreibung</th>
+                  <th class="py-2.5 px-3">OPNsense Interface</th>
+                </tr>
+              </thead>
+              <tbody id="leases-tbody" class="divide-y divide-slate-800"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: PRIVACY & SANITIZATION -->
+    <div id="tab-sanitize" class="space-y-6 hidden">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="flex items-start justify-between">
+          <div>
+            <h2 class="text-base font-semibold flex items-center gap-2">
+              <i class="fa-solid fa-shield-halved text-emerald-400"></i> Datenschutz- &amp; Sanitization-Tresor
+            </h2>
+            <p class="text-xs text-slate-400 mt-1 max-w-3xl">
+              Bevor Konfigurationsdaten oder Regelwerke an ein LLM (wie Anthropic Claude oder Google Gemini) übermittelt werden,
+              bereinigt dieses Tool alle sensiblen Geheimnisse (Bcrypt-Passworthashes, WireGuard/OpenVPN-Schlüssel, öffentliche WAN-IPs und Hostnamen).
+              Ein lokaler reversibler Tresor merkt sich die Platzhalter, sodass die echten Werte nach der Übersetzung wieder exakt eingesetzt werden.
+            </p>
+          </div>
+          <button onclick="triggerSanitize()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-4 py-2 rounded-lg font-medium transition flex items-center gap-1.5">
+            <i class="fa-solid fa-rotate"></i> Daten jetzt bereinigen
+          </button>
+        </div>
+
+        <div class="mt-4 p-4 bg-slate-950 rounded-lg border border-slate-800 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <input type="checkbox" id="anon-macs" class="rounded bg-slate-800 border-slate-700 text-sky-500 focus:ring-0">
+            <label for="anon-macs" class="text-xs text-slate-300 cursor-pointer">
+              <strong>MAC-Adressen ebenfalls pseudonymisieren</strong> (z.B. <code>__MAC_ADDR_001__</code>). Nützlich für maximale Privatsphäre bei externen LLMs.
+            </label>
+          </div>
+          <span class="text-xs text-emerald-400 font-medium flex items-center gap-1">
+            <i class="fa-solid fa-lock"></i> Reversibler Schutz aktiv
+          </span>
+        </div>
+      </div>
+
+      <!-- Audit Report of Scrubbed Items -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-list-check text-sky-400"></i> Gefundene &amp; maskierte Geheimnisse (Audit)
+          </h3>
+          <div class="overflow-x-auto max-h-80 overflow-y-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40 sticky top-0">
+                <tr>
+                  <th class="py-2 px-3">Ersatz-Token (für LLM)</th>
+                  <th class="py-2 px-3">Kategorie</th>
+                  <th class="py-2 px-3">Sichere Vorschau</th>
+                </tr>
+              </thead>
+              <tbody id="audit-tbody" class="divide-y divide-slate-800">
+                <tr><td colspan="3" class="py-4 text-center text-slate-500">Noch keine Bereinigung ausgeführt. Bitte XML laden.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-file-shield text-emerald-400"></i> Bereinigte XML-Vorschau (Payload für LLM)
+          </h3>
+          <textarea id="sanitized-preview-box" readonly class="w-full h-80 bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-400 font-mono resize-none focus:outline-none" placeholder="Hier erscheint die bereinigte XML..."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: LLM REGEL-ÜBERSETZER -->
+    <div id="tab-llm" class="space-y-6 hidden">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <h2 class="text-base font-semibold flex items-center gap-2">
+          <i class="fa-solid fa-brain text-purple-400"></i> KI-gestützte Architektur- &amp; Regel-Übersetzung
+        </h2>
+        <p class="text-xs text-slate-400 mt-1">
+          Warum LLM? OPNsense und UniFi Cloud Gateway Max folgen unterschiedlichen Philosophien (FreeBSD/pf Schnittstellen-Regeln vs. UniFi LAN_IN/WAN_IN Zonen).
+          Claude oder Gemini analysieren die Sicherheits-Absichten Ihrer komplexen Regeln und generieren die optimale UniFi-Regelstruktur.
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">KI-Provider wählen</label>
+            <select id="llm-provider" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200">
+              <option value="gemini">Google Gemini (z.B. Gemini 2.5 Flash / Pro)</option>
+              <option value="claude">Anthropic Claude (z.B. Claude 3.7 Sonnet)</option>
+              <option value="offline">Offline / Prompt-Export (Manuell per Web-Chat)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">API Key (optional, sicher im Speicher)</label>
+            <input type="password" id="llm-api-key" placeholder="AIzaSy... oder sk-ant-api..." class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200">
+          </div>
+          <div class="flex items-end space-x-2">
+            <button onclick="generatePrompt()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs px-3 py-2 rounded-lg font-medium transition flex-1 flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-terminal text-sky-400"></i> Prompt generieren
+            </button>
+            <button onclick="executeLlm()" class="bg-purple-600 hover:bg-purple-500 text-white text-xs px-4 py-2 rounded-lg font-medium transition flex-1 flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> Übersetzung starten
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Prompt & Response View -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold flex items-center gap-2">
+              <i class="fa-solid fa-code text-sky-400"></i> Prompt für LLM (Bereinigt)
+            </h3>
+            <button onclick="copyPrompt()" class="text-xs text-slate-400 hover:text-white flex items-center gap-1">
+              <i class="fa-regular fa-copy"></i> In Zwischenablage kopieren
+            </button>
+          </div>
+          <textarea id="prompt-box" readonly class="w-full h-80 bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-300 font-mono resize-none focus:outline-none" placeholder="Klicken Sie oben auf 'Prompt generieren'"></textarea>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold flex items-center gap-2">
+              <i class="fa-solid fa-reply text-purple-400"></i> LLM Antwort / Manuelle Eingabe
+            </h3>
+            <button onclick="applyOfflineResponse()" class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-2.5 py-1 rounded">
+              Antwort-JSON anwenden
+            </button>
+          </div>
+          <textarea id="response-box" class="w-full h-80 bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-emerald-400 font-mono resize-none focus:outline-none" placeholder="Hier erscheint die Antwort der KI oder fügen Sie das JSON aus ChatGPT/Claude/Gemini Web ein..."></textarea>
+        </div>
+      </div>
+
+      <!-- LLM Explanation Report -->
+      <div id="llm-report-box" class="bg-slate-900 border border-purple-900/50 rounded-xl p-5 hidden">
+        <h3 class="text-sm font-semibold text-purple-300 mb-2 flex items-center gap-2">
+          <i class="fa-solid fa-lightbulb text-amber-400"></i> Analyse &amp; Empfehlungen der KI
+        </h3>
+        <p id="llm-explanation-text" class="text-xs text-slate-300 mb-3 leading-relaxed"></p>
+        <ul id="llm-recommendations-list" class="text-xs text-slate-400 space-y-1 list-disc list-inside"></ul>
+      </div>
+    </div>
+
+    <!-- TAB 4: UNIFI KONFIG REVIEW -->
+    <div id="tab-review" class="space-y-6 hidden">
+      <!-- Inter-VLAN Default Allow Warning Box -->
+      <div class="bg-amber-950/40 border border-amber-700/50 rounded-xl p-4 flex items-start gap-3">
+        <i class="fa-solid fa-triangle-exclamation text-amber-400 text-lg mt-0.5"></i>
+        <div class="text-xs space-y-1">
+          <p class="font-semibold text-amber-300">Wichtige UniFi-Architektur-Besonderheit (Default-Allow Inter-VLAN):</p>
+          <p class="text-slate-300">
+            Im Gegensatz zu OPNsense erlaubt UniFi standardmäßig die freie Kommunikation zwischen allen Corporate-Netzwerken.
+            Unser Übersetzer hat dafür automatisch die Regel <strong>Allow Established/Related (2000)</strong>, alle Ausnahmen/Pinholes (2001-2090)
+            und die globale <strong>Block All Inter-VLAN (2099)</strong> Regel für die RFC1918-Gruppe angelegt!
+          </p>
+        </div>
+      </div>
+
+      <!-- Networks Table -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <h3 class="text-sm font-semibold mb-3 flex items-center gap-2 text-sky-400">
+          <i class="fa-solid fa-network-wired"></i> UniFi Virtual Networks (VLANs &amp; DHCP)
+        </h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left">
+            <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+              <tr>
+                <th class="py-2 px-3">Netzwerkname</th>
+                <th class="py-2 px-3">VLAN ID</th>
+                <th class="py-2 px-3">Gateway / Subnetz CIDR</th>
+                <th class="py-2 px-3">DHCP Status</th>
+                <th class="py-2 px-3">DHCP Pool</th>
+              </tr>
+            </thead>
+            <tbody id="unifi-networks-tbody" class="divide-y divide-slate-800"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Firewall Rules Table -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <h3 class="text-sm font-semibold mb-3 flex items-center gap-2 text-red-400">
+          <i class="fa-solid fa-shield"></i> UniFi Firewall-Regeln (LAN_IN / WAN_IN)
+        </h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left">
+            <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+              <tr>
+                <th class="py-2 px-3">Index</th>
+                <th class="py-2 px-3">Regelname</th>
+                <th class="py-2 px-3">Ruleset</th>
+                <th class="py-2 px-3">Aktion</th>
+                <th class="py-2 px-3">Protokoll</th>
+                <th class="py-2 px-3">Quelle / Ziel</th>
+                <th class="py-2 px-3">Beschreibung</th>
+              </tr>
+            </thead>
+            <tbody id="unifi-rules-tbody" class="divide-y divide-slate-800"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Firewall Groups Table -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <h3 class="text-sm font-semibold mb-3 flex items-center gap-2 text-purple-400">
+          <i class="fa-solid fa-layer-group"></i> Firewall Groups (IP- und Port-Gruppen)
+        </h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left">
+            <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+              <tr>
+                <th class="py-2 px-3">Gruppenname</th>
+                <th class="py-2 px-3">Typ</th>
+                <th class="py-2 px-3">Mitglieder</th>
+              </tr>
+            </thead>
+            <tbody id="unifi-groups-tbody" class="divide-y divide-slate-800"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Port Forwards & Fixed IPs -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 class="text-sm font-semibold mb-3 flex items-center gap-2 text-amber-400">
+            <i class="fa-solid fa-arrow-turn-down"></i> Port Forwarding Regeln
+          </h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+                <tr>
+                  <th class="py-2 px-3">Name</th>
+                  <th class="py-2 px-3">Externer Port</th>
+                  <th class="py-2 px-3">Ziel-IP &amp; Port</th>
+                  <th class="py-2 px-3">Protokoll</th>
+                </tr>
+              </thead>
+              <tbody id="unifi-forwards-tbody" class="divide-y divide-slate-800"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <h3 class="text-sm font-semibold mb-3 flex items-center gap-2 text-emerald-400">
+            <i class="fa-solid fa-address-card"></i> Feste Client-IPs (Fixed IPs)
+          </h3>
+          <div class="overflow-x-auto max-h-60 overflow-y-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40 sticky top-0">
+                <tr>
+                  <th class="py-2 px-3">Gerät</th>
+                  <th class="py-2 px-3">Feste IP</th>
+                  <th class="py-2 px-3">MAC-Adresse</th>
+                  <th class="py-2 px-3">Netzwerk</th>
+                </tr>
+              </thead>
+              <tbody id="unifi-fixedips-tbody" class="divide-y divide-slate-800"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 5: UCG-MAX ROLLOUT -->
+    <div id="tab-deploy" class="space-y-6 hidden">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+          <h2 class="text-base font-semibold flex items-center gap-2">
+            <i class="fa-solid fa-server text-sky-400"></i> Cloud Gateway Max Verbindung
+          </h2>
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">UCG-Max IP / Hostname</label>
+            <input type="text" id="ucg-host" value="192.168.1.1" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">Admin Benutzername</label>
+            <input type="text" id="ucg-user" value="admin" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">Admin Passwort</label>
+            <input type="password" id="ucg-pass" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200" placeholder="Passwort des Gateways">
+          </div>
+          <div class="pt-2 flex flex-col space-y-2">
+            <button onclick="testGatewayConnection()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs py-2 rounded-lg font-medium transition flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-plug text-sky-400"></i> Verbindung testen
+            </button>
+            <button onclick="runDryRun()" class="bg-amber-600 hover:bg-amber-500 text-white text-xs py-2 rounded-lg font-medium transition flex items-center justify-center gap-1.5 shadow-sm">
+              <i class="fa-solid fa-play text-xs"></i> Simulation ausführen (Dry-Run)
+            </button>
+            <button onclick="deployLive()" class="bg-red-600 hover:bg-red-500 text-white text-xs py-2 rounded-lg font-medium transition flex items-center justify-center gap-1.5 shadow-sm">
+              <i class="fa-solid fa-cloud-arrow-up"></i> Live auf UCG-Max anwenden
+            </button>
+          </div>
+        </div>
+
+        <div class="md:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col">
+          <h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-clipboard-check text-emerald-400"></i> Rollout-Protokoll &amp; Audit-Bericht
+          </h3>
+          <div id="deploy-log" class="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-300 font-mono overflow-y-auto max-h-96 min-h-[300px] space-y-1">
+            <div class="text-slate-500">Bereit für Verbindungstest oder Simulation...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 6: HARDWARE & SWITCH ROADMAP -->
+    <div id="tab-hardware" class="space-y-6 hidden">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <h2 class="text-base font-semibold flex items-center gap-2 text-sky-400">
+          <i class="fa-solid fa-diagram-project"></i> Schrittweiser Migrationsplan: APs &amp; UniFi Switches
+        </h2>
+        <p class="text-xs text-slate-400 mt-1">
+          Dieser Leitfaden führt Sie sicher durch die Ablösung des bisherigen UOS-Servers, die Übernahme der UniFi APs
+          und den physischen Austausch Ihrer alten Misch-Switches durch UniFi Lite / Pro PoE Switche.
+        </p>
+
+        <div class="mt-6 space-y-6">
+          <!-- Step 1 -->
+          <div class="border border-slate-800 bg-slate-950/60 rounded-xl p-5 flex items-start gap-4">
+            <div class="w-8 h-8 rounded-full bg-sky-900/50 border border-sky-600 text-sky-300 flex items-center justify-center font-bold text-sm shrink-0">1</div>
+            <div class="space-y-2">
+              <h4 class="text-sm font-semibold text-slate-200">Bisherigen UOS-Server sichern &amp; APs vorbereiten</h4>
+              <p class="text-xs text-slate-400">
+                Auf Ihrem aktuellen UniFi OS Server unter <em>Settings &gt; System &gt; Backups</em> ein Site-Backup (<code>.unf</code>) exportieren.
+                Notieren Sie sich den Device SSH Authentication Key (unter <em>Network &gt; Settings &gt; System &gt; Advanced &gt; Device Authentication</em>),
+                falls ein AP manuell adoptiert werden muss.
+              </p>
+            </div>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="border border-slate-800 bg-slate-950/60 rounded-xl p-5 flex items-start gap-4">
+            <div class="w-8 h-8 rounded-full bg-purple-900/50 border border-purple-600 text-purple-300 flex items-center justify-center font-bold text-sm shrink-0">2</div>
+            <div class="space-y-2">
+              <h4 class="text-sm font-semibold text-slate-200">Cloud Gateway Max in Betrieb nehmen &amp; VLANs übertragen</h4>
+              <p class="text-xs text-slate-400">
+                Schließen Sie den WAN-Port des UCG-Max an Ihr Glasfaser-/Kabel-Modem an.
+                Führen Sie die Migration über dieses Tool aus, um alle <strong>VLANs, Subnetze, DHCP-Bereiche, Aliase und Firewall-Regeln</strong>
+                sauber auf den UCG-Max zu übertragen.
+              </p>
+            </div>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="border border-slate-800 bg-slate-950/60 rounded-xl p-5 flex items-start gap-4">
+            <div class="w-8 h-8 rounded-full bg-emerald-900/50 border border-emerald-600 text-emerald-300 flex items-center justify-center font-bold text-sm shrink-0">3</div>
+            <div class="space-y-2">
+              <h4 class="text-sm font-semibold text-slate-200">UniFi Lite / Pro PoE Switche integrieren</h4>
+              <p class="text-xs text-slate-400">
+                Verbinden Sie den ersten neuen UniFi Switch (z.B. Switch Pro 24 PoE oder Switch Lite 16 PoE) per Uplink-Kabel mit dem LAN-Port des UCG-Max.
+                Adoptieren Sie den Switch mit einem Klick in der UCG-Max Oberfläche.
+              </p>
+              <div class="bg-slate-900 p-3 rounded-lg border border-slate-800 text-xs text-slate-300">
+                <strong>Port-Profile Best Practice:</strong>
+                <ul class="list-disc list-inside mt-1 space-y-1 text-slate-400">
+                  <li><strong>Uplink zu UCG-Max &amp; UniFi APs:</strong> Standardprofil <em>"Default" / Native VLAN: Management (1) + Tagged: Alle VLANs (10, 20, 30, 99)</em>.</li>
+                  <li><strong>PoE Ports für Protect Kameras:</strong> Native VLAN fest auf <em>CAMERAS (z.B. VLAN 30)</em> einstellen, Traffic Isolation aktivieren.</li>
+                  <li><strong>Kabelgebundene IoT-Geräte:</strong> Native VLAN auf <em>IOT_SMARTHOME (VLAN 20)</em>.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 4 -->
+          <div class="border border-slate-800 bg-slate-950/60 rounded-xl p-5 flex items-start gap-4">
+            <div class="w-8 h-8 rounded-full bg-amber-900/50 border border-amber-600 text-amber-300 flex items-center justify-center font-bold text-sm shrink-0">4</div>
+            <div class="space-y-2">
+              <h4 class="text-sm font-semibold text-slate-200">UniFi APs umziehen &amp; Alt-Server abschalten</h4>
+              <p class="text-xs text-slate-400">
+                Stecken Sie die UniFi APs an die neuen PoE-Ports des UniFi Switches.
+                Setzen Sie die Inform-URL der APs via SSH auf den neuen UCG-Max: <code>set-inform http://192.168.1.1:8080/inform</code>
+                oder nutzen Sie den offiziellen Site-Migration Wizard im alten UOS Server.
+                Sobald alle APs und Clients auf dem UCG-Max grün leuchten, schalten Sie den alten UOS-Server ab!
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="fixed bottom-5 right-5 bg-slate-800 border border-slate-700 text-slate-200 px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 transition-opacity duration-300 opacity-0 pointer-events-none z-50 text-xs">
+    <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400"></i>
+    <span id="toast-msg">Meldung</span>
+  </div>
+
+  <script>
+    // Tab Switching
+    function switchTab(tabId) {
+      const tabs = ['import', 'sanitize', 'llm', 'review', 'deploy', 'hardware'];
+      tabs.forEach(t => {
+        const el = document.getElementById('tab-' + t);
+        const btn = document.getElementById('tab-btn-' + t);
+        if (t === tabId) {
+          el.classList.remove('hidden');
+          btn.className = 'py-3 px-1 tab-active flex items-center gap-2';
+        } else {
+          el.classList.add('hidden');
+          btn.className = 'py-3 px-1 tab-inactive flex items-center gap-2';
+        }
+      });
+    }
+
+    function showToast(msg, isError = false) {
+      const toast = document.getElementById('toast');
+      const icon = document.getElementById('toast-icon');
+      const text = document.getElementById('toast-msg');
+
+      text.innerText = msg;
+      if (isError) {
+        icon.className = 'fa-solid fa-circle-exclamation text-red-400';
+      } else {
+        icon.className = 'fa-solid fa-circle-check text-emerald-400';
+      }
+
+      toast.classList.remove('opacity-0', 'pointer-events-none');
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'pointer-events-none');
+      }, 3500);
+    }
+
+    // Drag and Drop
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('border-sky-500', 'bg-slate-900');
+    });
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('border-sky-500', 'bg-slate-900');
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('border-sky-500', 'bg-slate-900');
+      if (e.dataTransfer.files.length > 0) {
+        readFile(e.dataTransfer.files[0]);
+      }
+    });
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        readFile(e.target.files[0]);
+      }
+    });
+
+    function readFile(file) {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        await uploadXmlContent(e.target.result);
+      };
+      reader.readAsText(file);
+    }
+
+    async function loadSampleConfig() {
+      try {
+        const res = await fetch('/api/load-sample', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          renderParsedData(data);
+          showToast('Beispiel-Konfiguration (OPNsense 26.7.5) erfolgreich geladen!');
+        } else {
+          showToast(data.error || 'Fehler beim Laden', true);
+        }
+      } catch (err) {
+        showToast('Netzwerkfehler: ' + err.message, true);
+      }
+    }
+
+    async function uploadXmlContent(content) {
+      try {
+        const res = await fetch('/api/upload-xml', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ xml_content: content })
+        });
+        const data = await res.json();
+        if (data.success) {
+          renderParsedData(data);
+          showToast('OPNsense Konfiguration erfolgreich analysiert!');
+        } else {
+          showToast(data.error || 'Fehler beim Parsen', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    function renderParsedData(data) {
+      const s = data.summary;
+      document.getElementById('metric-vlans').innerText = s.interfaces_count;
+      document.getElementById('metric-dhcp').innerText = s.static_leases_count;
+      document.getElementById('metric-aliases').innerText = s.aliases_count;
+      document.getElementById('metric-nat').innerText = s.port_forwards_count;
+      document.getElementById('metric-rules').innerText = s.filter_rules_count;
+
+      document.getElementById('metrics-container').classList.remove('hidden');
+      document.getElementById('parsed-details-container').classList.remove('hidden');
+
+      // Interfaces Table
+      const ifTable = document.getElementById('interfaces-tbody');
+      ifTable.innerHTML = s.interfaces.map(i => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2.5 px-3 font-semibold text-slate-200">${i.id}</td>
+          <td class="py-2.5 px-3 text-sky-400 font-medium">${i.descr}</td>
+          <td class="py-2.5 px-3 text-slate-400 font-mono">${i.device}</td>
+          <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">${i.vlan}</span></td>
+          <td class="py-2.5 px-3 font-mono text-slate-300">${i.ip}</td>
+        </tr>
+      `).join('');
+
+      // Leases Table
+      const leaseTable = document.getElementById('leases-tbody');
+      leaseTable.innerHTML = s.static_leases.map(l => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2.5 px-3 font-mono text-emerald-400">${l.mac}</td>
+          <td class="py-2.5 px-3 font-mono text-slate-200">${l.ip}</td>
+          <td class="py-2.5 px-3 font-medium text-slate-200">${l.hostname}</td>
+          <td class="py-2.5 px-3 text-slate-400">${l.descr}</td>
+          <td class="py-2.5 px-3 text-slate-400">${l.iface}</td>
+        </tr>
+      `).join('');
+
+      // Render UniFi Tab
+      renderUnifiReview(data.unifi_mapped);
+    }
+
+    function renderUnifiReview(u) {
+      if (!u) return;
+
+      // Networks
+      const netTbody = document.getElementById('unifi-networks-tbody');
+      netTbody.innerHTML = u.networks.map(n => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2 px-3 font-semibold text-sky-300">${n.name}</td>
+          <td class="py-2 px-3 font-mono text-slate-300">${n.vlan_id}</td>
+          <td class="py-2 px-3 font-mono text-slate-200">${n.gateway_cidr}</td>
+          <td class="py-2 px-3"><span class="px-2 py-0.5 rounded ${n.dhcp_enabled ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-800 text-slate-400'}">${n.dhcp_enabled ? 'Aktiv' : 'Manuell'}</span></td>
+          <td class="py-2 px-3 font-mono text-slate-400">${n.dhcp_range}</td>
+        </tr>
+      `).join('');
+
+      // Rules
+      const rulesTbody = document.getElementById('unifi-rules-tbody');
+      rulesTbody.innerHTML = u.firewall_rules.map(r => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2 px-3 font-mono text-slate-400">${r.rule_index}</td>
+          <td class="py-2 px-3 font-medium text-slate-200">${r.name}</td>
+          <td class="py-2 px-3 font-mono text-xs text-sky-400">${r.ruleset}</td>
+          <td class="py-2 px-3"><span class="px-2 py-0.5 rounded text-xs ${r.action === 'accept' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-red-950 text-red-400 border border-red-800'}">${r.action.toUpperCase()}</span></td>
+          <td class="py-2 px-3 font-mono text-slate-400">${r.protocol}</td>
+          <td class="py-2 px-3 text-slate-400">${r.src_groups.join(',') || r.src_addr || 'any'} &rarr; ${r.dst_groups.join(',') || r.dst_addr || 'any'}</td>
+          <td class="py-2 px-3 text-slate-500 max-w-xs truncate">${r.description}</td>
+        </tr>
+      `).join('');
+
+      // Groups
+      const groupsTbody = document.getElementById('unifi-groups-tbody');
+      groupsTbody.innerHTML = u.firewall_groups.map(g => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2 px-3 font-semibold text-purple-300">${g.name}</td>
+          <td class="py-2 px-3 font-mono text-slate-400">${g.group_type}</td>
+          <td class="py-2 px-3 font-mono text-slate-300">${g.members.join(', ')}</td>
+        </tr>
+      `).join('');
+
+      // Port Forwards
+      const fwdTbody = document.getElementById('unifi-forwards-tbody');
+      fwdTbody.innerHTML = u.port_forwards.map(p => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2 px-3 font-medium text-slate-200">${p.name}</td>
+          <td class="py-2 px-3 font-mono text-amber-400">${p.dst_port}</td>
+          <td class="py-2 px-3 font-mono text-slate-300">${p.fwd_ip}:${p.fwd_port}</td>
+          <td class="py-2 px-3 font-mono text-slate-400">${p.protocol}</td>
+        </tr>
+      `).join('');
+
+      // Fixed IPs
+      const fixedTbody = document.getElementById('unifi-fixedips-tbody');
+      fixedTbody.innerHTML = u.fixed_ips.map(f => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2 px-3 font-medium text-slate-200">${f.name}</td>
+          <td class="py-2 px-3 font-mono text-emerald-400">${f.fixed_ip}</td>
+          <td class="py-2 px-3 font-mono text-slate-400">${f.mac}</td>
+          <td class="py-2 px-3 text-slate-400">${f.network_name}</td>
+        </tr>
+      `).join('');
+    }
+
+    // Sanitization Trigger
+    async function triggerSanitize() {
+      const anonMacs = document.getElementById('anon-macs').checked;
+      try {
+        const res = await fetch('/api/sanitize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ anonymize_macs: anonMacs })
+        });
+        const data = await res.json();
+        if (data.success) {
+          const auditTbody = document.getElementById('audit-tbody');
+          auditTbody.innerHTML = data.audit_summary.map(item => `
+            <tr class="hover:bg-slate-800/40">
+              <td class="py-2 px-3 font-mono text-purple-400 font-semibold">${item.token}</td>
+              <td class="py-2 px-3 text-slate-400">${item.category}</td>
+              <td class="py-2 px-3 font-mono text-emerald-400">${item.preview}</td>
+            </tr>
+          `).join('');
+          document.getElementById('sanitized-preview-box').value = data.sanitized_xml_preview;
+          showToast('Datenschutz-Bereinigung erfolgreich durchgeführt!');
+        }
+      } catch (err) {
+        showToast('Fehler bei Bereinigung: ' + err.message, true);
+      }
+    }
+
+    // Prompt Generation
+    async function generatePrompt() {
+      try {
+        const res = await fetch('/api/generate-prompt', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('prompt-box').value = data.prompt;
+          showToast('LLM-Prompt generiert!');
+        } else {
+          showToast(data.error || 'Fehler beim Erzeugen des Prompts', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    function copyPrompt() {
+      const text = document.getElementById('prompt-box').value;
+      if (!text) {
+        showToast('Kein Prompt vorhanden', true);
+        return;
+      }
+      navigator.clipboard.writeText(text);
+      showToast('Prompt in die Zwischenablage kopiert!');
+    }
+
+    async function executeLlm() {
+      const provider = document.getElementById('llm-provider').value;
+      const apiKey = document.getElementById('llm-api-key').value;
+      const prompt = document.getElementById('prompt-box').value;
+
+      if (!prompt) {
+        await generatePrompt();
+      }
+
+      if (provider === 'offline') {
+        showToast('Im Offline-Modus bitte Prompt in Claude/Gemini Web einfügen und Antwort unten einfügen!', false);
+        return;
+      }
+
+      if (!apiKey) {
+        showToast('Bitte API Key für ' + provider + ' eingeben!', true);
+        return;
+      }
+
+      showToast('Sende Anfrage an ' + provider + ' (kann ca. 10s dauern)...');
+      try {
+        const res = await fetch('/api/run-llm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: provider,
+            api_key: apiKey,
+            prompt: document.getElementById('prompt-box').value
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('response-box').value = JSON.stringify(data.result, null, 2);
+          showLlmReport(data.result);
+          showToast('KI-Übersetzung erfolgreich empfangen & rehydriert!');
+        } else {
+          showToast('Fehler: ' + data.error, true);
+        }
+      } catch (err) {
+        showToast('Netzwerkfehler: ' + err.message, true);
+      }
+    }
+
+    async function applyOfflineResponse() {
+      const text = document.getElementById('response-box').value;
+      if (!text) {
+        showToast('Kein JSON vorhanden!', true);
+        return;
+      }
+      try {
+        const res = await fetch('/api/apply-offline-llm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ json_text: text })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showLlmReport(data.result);
+          showToast('Antwort erfolgreich angewendet & rehydriert!');
+        } else {
+          showToast('Ungültiges JSON Format: ' + data.error, true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    function showLlmReport(result) {
+      if (!result) return;
+      const box = document.getElementById('llm-report-box');
+      box.classList.remove('hidden');
+      document.getElementById('llm-explanation-text').innerText = result.explanation || 'Keine Erklärung angegeben.';
+      const list = document.getElementById('llm-recommendations-list');
+      list.innerHTML = (result.recommendations || []).map(r => `<li>${r}</li>`).join('');
+    }
+
+    // UCG-Max Deployment & Dry Run
+    function logDeploy(msg, color = 'text-slate-300') {
+      const log = document.getElementById('deploy-log');
+      const time = new Date().toLocaleTimeString();
+      log.innerHTML += `<div class="${color}">[${time}] ${msg}</div>`;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function testGatewayConnection() {
+      const host = document.getElementById('ucg-host').value;
+      const user = document.getElementById('ucg-user').value;
+      const pass = document.getElementById('ucg-pass').value;
+
+      logDeploy(`Teste Verbindung zu Cloud Gateway Max (${host})...`);
+      try {
+        const res = await fetch('/api/test-connection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ host: host, username: user, password: pass })
+        });
+        const data = await res.json();
+        if (data.success) {
+          logDeploy(`ERFOLG: ${data.message}`, 'text-emerald-400 font-semibold');
+          showToast('Verbindung zu UCG-Max erfolgreich!');
+        } else {
+          logDeploy(`FEHLER: ${data.message || data.error}`, 'text-red-400 font-semibold');
+          showToast('Verbindung fehlgeschlagen', true);
+        }
+      } catch (err) {
+        logDeploy(`FEHLER: ${err.message}`, 'text-red-400');
+      }
+    }
+
+    async function runDryRun() {
+      const host = document.getElementById('ucg-host').value;
+      const user = document.getElementById('ucg-user').value;
+      const pass = document.getElementById('ucg-pass').value;
+
+      logDeploy(`--- STARTE DRY-RUN SIMULATION FÜR ${host} ---`, 'text-amber-400 font-bold');
+      try {
+        const res = await fetch('/api/dry-run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ host: host, username: user, password: pass })
+        });
+        const data = await res.json();
+        if (data.success) {
+          const r = data.report;
+          logDeploy(`Netzwerke zu erstellen: ${r.networks_to_create.length}`, 'text-sky-400');
+          r.networks_to_create.forEach(n => logDeploy(`  + VLAN ${n.vlan} [${n.name}]: ${n.cidr} (DHCP: ${n.dhcp})`, 'text-slate-400'));
+
+          logDeploy(`Firewall-Gruppen zu erstellen: ${r.firewall_groups_to_create.length}`, 'text-purple-400');
+          logDeploy(`Firewall-Regeln zu erstellen: ${r.firewall_rules_to_create.length}`, 'text-red-400');
+          r.firewall_rules_to_create.forEach(rule => logDeploy(`  + Regel ${rule.index} [${rule.ruleset}]: ${rule.action.toUpperCase()} ${rule.name}`, 'text-slate-400'));
+
+          logDeploy(`Feste IPs zuzuordnen: ${r.fixed_ips_to_assign.length}`, 'text-emerald-400');
+          logDeploy(`Port Forwards: ${r.port_forwards_to_create.length}`, 'text-amber-400');
+
+          if (r.warnings.length > 0) {
+            r.warnings.forEach(w => logDeploy(`WARNUNG: ${w}`, 'text-amber-400 font-bold'));
+          }
+
+          logDeploy(`Simulation erfolgreich abgeschlossen. Keine Daten auf dem UCG-Max verändert.`, 'text-emerald-400 font-semibold');
+          showToast('Dry-Run Simulation abgeschlossen!');
+        } else {
+          logDeploy(`Fehler im Dry-Run: ${data.error}`, 'text-red-400');
+        }
+      } catch (err) {
+        logDeploy(`Fehler: ${err.message}`, 'text-red-400');
+      }
+    }
+
+    async function deployLive() {
+      if (!confirm('ACHTUNG: Möchten Sie die Netzwerke, Firewall-Regeln und festen IPs wirklich LIVE auf Ihr UniFi Cloud Gateway Max übertragen?')) {
+        return;
+      }
+
+      const host = document.getElementById('ucg-host').value;
+      const user = document.getElementById('ucg-user').value;
+      const pass = document.getElementById('ucg-pass').value;
+
+      logDeploy(`--- STARTE LIVE-DEPLOYMENT AUF ${host} ---`, 'text-red-400 font-bold');
+      try {
+        const res = await fetch('/api/deploy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ host: host, username: user, password: pass })
+        });
+        const data = await res.json();
+        if (data.success) {
+          const resObj = data.results;
+          logDeploy(`ERFOLGREICH BEREITGESTELLT:`, 'text-emerald-400 font-bold');
+          logDeploy(`  Erstellte Netzwerke: ${resObj.created_networks}`);
+          logDeploy(`  Erstellte Gruppen: ${resObj.created_groups}`);
+          logDeploy(`  Erstellte Firewall-Regeln: ${resObj.created_rules}`);
+          logDeploy(`  Erstellte Port Forwards: ${resObj.created_port_forwards}`);
+          logDeploy(`  Zugewiesene Fixed IPs: ${resObj.assigned_fixed_ips}`);
+          if (resObj.errors.length > 0) {
+            resObj.errors.forEach(e => logDeploy(`  Fehler: ${e}`, 'text-red-400'));
+          }
+          showToast('Live Deployment abgeschlossen!');
+        } else {
+          logDeploy(`Deployment fehlgeschlagen: ${data.error}`, 'text-red-400 font-bold');
+        }
+      } catch (err) {
+        logDeploy(`Deployment Fehler: ${err.message}`, 'text-red-400');
+      }
+    }
+
+    function downloadUnifiJson() {
+      window.location.href = '/api/export-unifi-json';
+    }
+  </script>
+</body>
+</html>

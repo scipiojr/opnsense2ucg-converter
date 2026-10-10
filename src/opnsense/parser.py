@@ -1,0 +1,339 @@
+"""
+Parser for OPNsense configuration XML (config.xml).
+Extracts Interfaces, VLANs, DHCP settings (ISC & Kea), Aliases, NAT rules, and Firewall filter rules.
+"""
+
+import xml.etree.ElementTree as ET
+from typing import List, Dict, Optional, Tuple
+from src.models import (
+    OPNsenseConfig,
+    OPNsenseInterface,
+    OPNsenseStaticLease,
+    OPNsenseDhcpRange,
+    OPNsenseAlias,
+    OPNsensePortForward,
+    OPNsenseFilterRule,
+)
+
+
+class OPNsenseParser:
+    def __init__(self, xml_content: str):
+        self.raw_xml = xml_content
+        self.root = ET.fromstring(xml_content.strip())
+        self.version = self._extract_version()
+
+    def _extract_version(self) -> str:
+        version_el = self.root.find(".//version")
+        if version_el is not None and version_el.text:
+            return version_el.text.strip()
+        theme_el = self.root.find(".//theme")
+        return "OPNsense (unknown version)"
+
+    def parse(self) -> OPNsenseConfig:
+        config = OPNsenseConfig(version=self.version, raw_xml=self.raw_xml)
+        
+        # 1. Parse VLAN definitions
+        vlans_map = self._parse_vlans()
+
+        # 2. Parse Interfaces
+        config.interfaces = self._parse_interfaces(vlans_map)
+
+        # 3. Parse DHCP (ISC dhcpd & Kea)
+        config.dhcp_ranges, config.static_leases = self._parse_dhcp()
+
+        # 4. Parse Aliases
+        config.aliases = self._parse_aliases()
+
+        # 5. Parse NAT Port Forwards
+        config.port_forwards = self._parse_nat()
+
+        # 6. Parse Firewall Filter Rules
+        config.filter_rules = self._parse_filter_rules()
+
+        return config
+
+    def _parse_vlans(self) -> Dict[str, Tuple[int, str, str]]:
+        """
+        Extracts VLANs and maps vlanif (e.g. 'vlan0.10' or 'igb0_vlan10') to (tag, parent_if, descr).
+        """
+        vlans: Dict[str, Tuple[int, str, str]] = {}
+        for vlan in self.root.findall(".//vlans/vlan"):
+            vlanif = self._get_text(vlan, "vlanif")
+            tag_str = self._get_text(vlan, "tag")
+            parent_if = self._get_text(vlan, "if")
+            descr = self._get_text(vlan, "descr")
+
+            if tag_str.isdigit():
+                tag = int(tag_str)
+                if vlanif:
+                    vlans[vlanif] = (tag, parent_if, descr)
+                # Also index by generated tag key in case interface uses format like vlan0.<tag>
+                vlans[f"vlan_{tag}"] = (tag, parent_if, descr)
+        return vlans
+
+    def _parse_interfaces(self, vlans_map: Dict[str, Tuple[int, str, str]]) -> List[OPNsenseInterface]:
+        interfaces: List[OPNsenseInterface] = []
+        interfaces_node = self.root.find("interfaces")
+        if interfaces_node is None:
+            return interfaces
+
+        for if_node in interfaces_node:
+            if_id = if_node.tag
+            descr = self._get_text(if_node, "descr") or if_id.upper()
+            physical_if = self._get_text(if_node, "if")
+            ipaddr = self._get_text(if_node, "ipaddr") or ""
+            subnet = self._get_text(if_node, "subnet") or ""
+            gateway = self._get_text(if_node, "gateway") or None
+            enabled = self._get_text(if_node, "enable") != "0" and if_node.find("enable") is not None
+
+            # Detect VLAN tag
+            vlan_tag: Optional[int] = None
+            if physical_if in vlans_map:
+                vlan_tag = vlans_map[physical_if][0]
+            elif "." in physical_if:
+                # e.g. igb0.10 or vlan0.20
+                parts = physical_if.split(".")
+                if len(parts) == 2 and parts[1].isdigit():
+                    vlan_tag = int(parts[1])
+            elif "_vlan" in physical_if:
+                parts = physical_if.split("_vlan")
+                if len(parts) == 2 and parts[1].isdigit():
+                    vlan_tag = int(parts[1])
+
+            interfaces.append(
+                OPNsenseInterface(
+                    id=if_id,
+                    descr=descr,
+                    physical_if=physical_if,
+                    ipaddr=ipaddr,
+                    subnet=subnet,
+                    gateway=gateway,
+                    vlan_tag=vlan_tag,
+                    enabled=enabled,
+                )
+            )
+        return interfaces
+
+    def _parse_dhcp(self) -> Tuple[List[OPNsenseDhcpRange], List[OPNsenseStaticLease]]:
+        ranges: List[OPNsenseDhcpRange] = []
+        static_leases: List[OPNsenseStaticLease] = []
+
+        # 1. ISC DHCP (<dhcpd>)
+        dhcpd_node = self.root.find("dhcpd")
+        if dhcpd_node is not None:
+            for if_node in dhcpd_node:
+                if_id = if_node.tag
+                enable = if_node.find("enable") is not None
+                if not enable:
+                    continue
+
+                range_node = if_node.find("range")
+                range_from = self._get_text(range_node, "from") if range_node is not None else ""
+                range_to = self._get_text(range_node, "to") if range_node is not None else ""
+                gateway = self._get_text(if_node, "gateway")
+
+                dns_servers = []
+                for dns_tag in ["dnsserver", "dns1", "dns2"]:
+                    for dns_el in if_node.findall(dns_tag):
+                        if dns_el.text:
+                            dns_servers.append(dns_el.text.strip())
+
+                if range_from and range_to:
+                    ranges.append(
+                        OPNsenseDhcpRange(
+                            interface=if_id,
+                            range_from=range_from,
+                            range_to=range_to,
+                            dns_servers=dns_servers,
+                            gateway=gateway,
+                        )
+                    )
+
+                for sm in if_node.findall("staticmap"):
+                    mac = self._get_text(sm, "mac").lower().replace("-", ":")
+                    ip = self._get_text(sm, "ipaddr")
+                    hostname = self._get_text(sm, "hostname")
+                    descr = self._get_text(sm, "descr") or hostname or ip
+                    if mac and ip:
+                        static_leases.append(
+                            OPNsenseStaticLease(
+                                mac=mac,
+                                ipaddr=ip,
+                                hostname=hostname or descr or "device",
+                                descr=descr,
+                                interface=if_id,
+                            )
+                        )
+
+        # 2. Kea DHCP (<kea>)
+        kea_reservations = self.root.findall(".//kea/dhcp4/subnets/subnet")
+        for subnet in kea_reservations:
+            subnet_str = self._get_text(subnet, "subnet")
+            # Parse Kea reservations
+            for res in subnet.findall(".//reservations/reservation"):
+                mac = self._get_text(res, "hw_address").lower().replace("-", ":")
+                ip = self._get_text(res, "ip_address")
+                hostname = self._get_text(res, "hostname")
+                descr = self._get_text(res, "description") or hostname or ip
+                if mac and ip:
+                    # check if already added
+                    if not any(sl.mac == mac and sl.ipaddr == ip for sl in static_leases):
+                        static_leases.append(
+                            OPNsenseStaticLease(
+                                mac=mac,
+                                ipaddr=ip,
+                                hostname=hostname or descr or "device",
+                                descr=descr,
+                                interface="kea",
+                            )
+                        )
+
+        return ranges, static_leases
+
+    def _parse_aliases(self) -> List[OPNsenseAlias]:
+        aliases: List[OPNsenseAlias] = []
+        # OPNsense stores aliases in <aliases><alias> or <firewall><aliases><alias>
+        alias_nodes = self.root.findall(".//aliases/alias")
+        for node in alias_nodes:
+            name = self._get_text(node, "name")
+            alias_type = self._get_text(node, "type") or "host"
+            descr = self._get_text(node, "descr")
+
+            raw_content = self._get_text(node, "content") or self._get_text(node, "address")
+            content_items: List[str] = []
+            if raw_content:
+                # Can be space, newline, or comma separated
+                items = raw_content.replace(",", " ").replace("\n", " ").split()
+                content_items = [it.strip() for it in items if it.strip()]
+
+            if name:
+                aliases.append(
+                    OPNsenseAlias(
+                        name=name,
+                        type=alias_type,
+                        content=content_items,
+                        descr=descr,
+                    )
+                )
+        return aliases
+
+    def _parse_nat(self) -> List[OPNsensePortForward]:
+        port_forwards: List[OPNsensePortForward] = []
+        for rule in self.root.findall(".//nat/rule"):
+            # Check if this is a port forward (nordr is not set or empty)
+            nordr = self._get_text(rule, "nordr")
+            if nordr:
+                continue  # skip no-redirect rules
+
+            interface = self._get_text(rule, "interface") or "wan"
+            protocol = self._get_text(rule, "protocol") or "tcp"
+            target_ip = self._get_text(rule, "target")
+            local_port = self._get_text(rule, "local-port")
+            descr = self._get_text(rule, "descr")
+            disabled = rule.find("disabled") is not None
+
+            # Destination
+            dst_node = rule.find("destination")
+            dst_ip = "any"
+            dst_port = ""
+            if dst_node is not None:
+                dst_ip = self._get_text(dst_node, "network") or self._get_text(dst_node, "address") or "any"
+                dst_port = self._get_text(dst_node, "port")
+
+            # Source
+            src_node = rule.find("source")
+            src_ip = "any"
+            src_port = "any"
+            if src_node is not None:
+                src_ip = self._get_text(src_node, "network") or self._get_text(src_node, "address") or "any"
+                src_port = self._get_text(src_node, "port") or "any"
+
+            if target_ip and (local_port or dst_port):
+                port_forwards.append(
+                    OPNsensePortForward(
+                        interface=interface,
+                        protocol=protocol,
+                        src_ip=src_ip,
+                        src_port=src_port,
+                        dst_ip=dst_ip,
+                        dst_port=dst_port or local_port,
+                        target_ip=target_ip,
+                        target_port=local_port or dst_port,
+                        descr=descr,
+                        enabled=not disabled,
+                    )
+                )
+        return port_forwards
+
+    def _parse_filter_rules(self) -> List[OPNsenseFilterRule]:
+        filter_rules: List[OPNsenseFilterRule] = []
+        rule_nodes = self.root.findall(".//filter/rule")
+        
+        for idx, rule in enumerate(rule_nodes):
+            action = self._get_text(rule, "type") or "pass"
+            interface = self._get_text(rule, "interface") or "lan"
+            direction = self._get_text(rule, "direction") or "in"
+            protocol = self._get_text(rule, "protocol") or "any"
+            descr = self._get_text(rule, "descr")
+            disabled = rule.find("disabled") is not None
+            log = rule.find("log") is not None
+            quick = self._get_text(rule, "quick") != "no"
+
+            # Parse Source
+            src_node = rule.find("source")
+            src = "any"
+            src_port = "any"
+            src_inv = False
+            if src_node is not None:
+                src = (
+                    self._get_text(src_node, "network")
+                    or self._get_text(src_node, "address")
+                    or "any"
+                )
+                src_port = self._get_text(src_node, "port") or "any"
+                src_inv = src_node.find("not") is not None
+
+            # Parse Destination
+            dst_node = rule.find("destination")
+            dst = "any"
+            dst_port = "any"
+            dst_inv = False
+            if dst_node is not None:
+                dst = (
+                    self._get_text(dst_node, "network")
+                    or self._get_text(dst_node, "address")
+                    or "any"
+                )
+                dst_port = self._get_text(dst_node, "port") or "any"
+                dst_inv = dst_node.find("not") is not None
+
+            filter_rules.append(
+                OPNsenseFilterRule(
+                    id=f"rule_{idx+1}",
+                    interface=interface,
+                    direction=direction,
+                    action=action,
+                    protocol=protocol,
+                    src=src,
+                    src_port=src_port,
+                    dst=dst,
+                    dst_port=dst_port,
+                    descr=descr,
+                    enabled=not disabled,
+                    log=log,
+                    is_quick=quick,
+                    src_inverted=src_inv,
+                    dst_inverted=dst_inv,
+                )
+            )
+
+        return filter_rules
+
+    @staticmethod
+    def _get_text(node: Optional[ET.Element], child_tag: str) -> str:
+        if node is None:
+            return ""
+        child = node.find(child_tag)
+        if child is not None and child.text:
+            return child.text.strip()
+        return ""

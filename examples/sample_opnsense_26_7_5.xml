@@ -1,0 +1,295 @@
+<?xml version="1.0"?>
+<opnsense>
+  <version>26.7.5</version>
+  <theme>opnsense</theme>
+  <system>
+    <hostname>OPNsense-Core</hostname>
+    <domain>home.arpa</domain>
+    <user>
+      <name>root</name>
+      <password>$2y$10$e8q4mQWd4Y35vGZ7b8hLDe90jKLmNOPqrSTuvWXyz1234567890ab</password>
+    </user>
+  </system>
+  <interfaces>
+    <wan>
+      <enable>1</enable>
+      <if>igb0</if>
+      <descr>WAN_FIBER</descr>
+      <ipaddr>203.0.113.85</ipaddr>
+      <subnet>29</subnet>
+      <gateway>203.0.113.81</gateway>
+    </wan>
+    <lan>
+      <enable>1</enable>
+      <if>igb1</if>
+      <descr>MANAGEMENT</descr>
+      <ipaddr>192.168.1.1</ipaddr>
+      <subnet>24</subnet>
+    </lan>
+    <opt1>
+      <enable>1</enable>
+      <if>vlan0.10</if>
+      <descr>SERVERS</descr>
+      <ipaddr>192.168.10.1</ipaddr>
+      <subnet>24</subnet>
+    </opt1>
+    <opt2>
+      <enable>1</enable>
+      <if>vlan0.20</if>
+      <descr>IOT_SMARTHOME</descr>
+      <ipaddr>192.168.20.1</ipaddr>
+      <subnet>24</subnet>
+    </opt2>
+    <opt3>
+      <enable>1</enable>
+      <if>vlan0.30</if>
+      <descr>CAMERAS</descr>
+      <ipaddr>192.168.30.1</ipaddr>
+      <subnet>24</subnet>
+    </opt3>
+    <opt4>
+      <enable>1</enable>
+      <if>vlan0.99</if>
+      <descr>GUEST_WIFI</descr>
+      <ipaddr>192.168.99.1</ipaddr>
+      <subnet>24</subnet>
+    </opt4>
+  </interfaces>
+  <vlans>
+    <vlan>
+      <if>igb1</if>
+      <tag>10</tag>
+      <vlanif>vlan0.10</vlanif>
+      <descr>Servers Subnet</descr>
+    </vlan>
+    <vlan>
+      <if>igb1</if>
+      <tag>20</tag>
+      <vlanif>vlan0.20</vlanif>
+      <descr>IoT &amp; Smart Home</descr>
+    </vlan>
+    <vlan>
+      <if>igb1</if>
+      <tag>30</tag>
+      <vlanif>vlan0.30</vlanif>
+      <descr>Protect Cameras</descr>
+    </vlan>
+    <vlan>
+      <if>igb1</if>
+      <tag>99</tag>
+      <vlanif>vlan0.99</vlanif>
+      <descr>Isolated Guest Network</descr>
+    </vlan>
+  </vlans>
+  <dhcpd>
+    <lan>
+      <enable>1</enable>
+      <range>
+        <from>192.168.1.100</from>
+        <to>192.168.1.200</to>
+      </range>
+      <staticmap>
+        <mac>00:11:32:aa:bb:01</mac>
+        <ipaddr>192.168.1.10</ipaddr>
+        <hostname>Admin-Workstation</hostname>
+        <descr>IT Admin PC</descr>
+      </staticmap>
+      <staticmap>
+        <mac>70:a7:41:cc:dd:02</mac>
+        <ipaddr>192.168.1.15</ipaddr>
+        <hostname>UOS-Server</hostname>
+        <descr>Current UniFi OS Server</descr>
+      </staticmap>
+    </lan>
+    <opt1>
+      <enable>1</enable>
+      <range>
+        <from>192.168.10.50</from>
+        <to>192.168.10.200</to>
+      </range>
+      <staticmap>
+        <mac>00:15:5d:12:34:56</mac>
+        <ipaddr>192.168.10.10</ipaddr>
+        <hostname>NAS-Storage</hostname>
+        <descr>TrueNAS Server</descr>
+      </staticmap>
+      <staticmap>
+        <mac>00:15:5d:78:9a:bc</mac>
+        <ipaddr>192.168.10.20</ipaddr>
+        <hostname>Home-Assistant</hostname>
+        <descr>Home Automation Core</descr>
+      </staticmap>
+    </opt1>
+    <opt2>
+      <enable>1</enable>
+      <range>
+        <from>192.168.20.50</from>
+        <to>192.168.20.250</to>
+      </range>
+      <staticmap>
+        <mac>d8:96:85:11:22:33</mac>
+        <ipaddr>192.168.20.100</ipaddr>
+        <hostname>Sonos-LivingRoom</hostname>
+        <descr>Living Room Speaker</descr>
+      </staticmap>
+      <staticmap>
+        <mac>50:02:91:44:55:66</mac>
+        <ipaddr>192.168.20.105</ipaddr>
+        <hostname>Hue-Bridge</hostname>
+        <descr>Philips Hue Gateway</descr>
+      </staticmap>
+    </opt2>
+    <opt3>
+      <enable>1</enable>
+      <range>
+        <from>192.168.30.50</from>
+        <to>192.168.30.150</to>
+      </range>
+      <staticmap>
+        <mac>b4:fb:e4:66:77:88</mac>
+        <ipaddr>192.168.30.11</ipaddr>
+        <hostname>Camera-FrontDoor</hostname>
+        <descr>G4 Doorbell</descr>
+      </staticmap>
+      <staticmap>
+        <mac>b4:fb:e4:99:aa:bb</mac>
+        <ipaddr>192.168.30.12</ipaddr>
+        <hostname>Camera-Garden</hostname>
+        <descr>G5 Bullet</descr>
+      </staticmap>
+    </opt3>
+    <opt4>
+      <enable>1</enable>
+      <range>
+        <from>192.168.99.100</from>
+        <to>192.168.99.250</to>
+      </range>
+    </opt4>
+  </dhcpd>
+  <aliases>
+    <alias>
+      <name>DNS_SERVERS</name>
+      <type>host</type>
+      <content>192.168.1.1 192.168.10.10</content>
+      <descr>Local Adguard / PiHole DNS</descr>
+    </alias>
+    <alias>
+      <name>HA_SERVER</name>
+      <type>host</type>
+      <content>192.168.10.20</content>
+      <descr>Home Assistant IP</descr>
+    </alias>
+    <alias>
+      <name>WEB_PORTS</name>
+      <type>port</type>
+      <content>80 443 8443</content>
+      <descr>Standard HTTP/HTTPS Ports</descr>
+    </alias>
+    <alias>
+      <name>SONOS_PORTS</name>
+      <type>port</type>
+      <content>1400 1443 1900</content>
+      <descr>Sonos Control &amp; Discovery Ports</descr>
+    </alias>
+  </aliases>
+  <nat>
+    <rule>
+      <interface>wan</interface>
+      <protocol>tcp</protocol>
+      <destination>
+        <network>wanip</network>
+        <port>443</port>
+      </destination>
+      <target>192.168.10.20</target>
+      <local-port>8123</local-port>
+      <descr>HTTPS External to Home Assistant</descr>
+    </rule>
+    <rule>
+      <interface>wan</interface>
+      <protocol>udp</protocol>
+      <destination>
+        <network>wanip</network>
+        <port>51820</port>
+      </destination>
+      <target>192.168.10.10</target>
+      <local-port>51820</local-port>
+      <descr>WireGuard VPN Forward</descr>
+    </rule>
+  </nat>
+  <filter>
+    <rule>
+      <type>pass</type>
+      <interface>lan</interface>
+      <protocol>any</protocol>
+      <source>
+        <network>lan</network>
+      </source>
+      <destination>
+        <network>any</network>
+      </destination>
+      <descr>Default Allow LAN to Any</descr>
+    </rule>
+    <rule>
+      <type>pass</type>
+      <interface>opt1</interface>
+      <protocol>any</protocol>
+      <source>
+        <network>opt1</network>
+      </source>
+      <destination>
+        <network>any</network>
+      </destination>
+      <descr>Allow Servers Internet Access</descr>
+    </rule>
+    <rule>
+      <type>pass</type>
+      <interface>opt2</interface>
+      <protocol>udp</protocol>
+      <source>
+        <network>opt2</network>
+      </source>
+      <destination>
+        <address>DNS_SERVERS</address>
+        <port>53</port>
+      </destination>
+      <descr>Allow IoT DNS Queries</descr>
+    </rule>
+    <rule>
+      <type>pass</type>
+      <interface>opt2</interface>
+      <protocol>tcp</protocol>
+      <source>
+        <network>opt2</network>
+      </source>
+      <destination>
+        <address>HA_SERVER</address>
+        <port>8123</port>
+      </destination>
+      <descr>Allow IoT devices to report to Home Assistant</descr>
+    </rule>
+    <rule>
+      <type>block</type>
+      <interface>opt2</interface>
+      <protocol>any</protocol>
+      <source>
+        <network>opt2</network>
+      </source>
+      <destination>
+        <network>lan</network>
+      </destination>
+      <descr>Block IoT from accessing Management LAN</descr>
+    </rule>
+    <rule>
+      <type>block</type>
+      <interface>opt3</interface>
+      <protocol>any</protocol>
+      <source>
+        <network>opt3</network>
+      </source>
+      <destination>
+        <network>any</network>
+      </destination>
+      <descr>Isolate Cameras from Internet</descr>
+    </rule>
+  </filter>
+</opnsense>
