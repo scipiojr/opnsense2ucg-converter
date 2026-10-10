@@ -14,6 +14,7 @@ Das Tool überbrückt die konzeptionellen Paradigmenwechsel zwischen FreeBSD/pf 
 ## 📑 Inhaltsverzeichnis
 
 - [Architektur & Migrationsablauf](#-architektur--migrationsablauf)
+- [3-Wege Multi-Source Konsolidierung (OPNsense + UCG + UOS)](#-3-wege-multi-source-konsolidierung-opnsense--ucg-max--unifi-os-server)
 - [Konzeptionelle Unterschiede (OPNsense vs. UniFi)](#-konzeptionelle-unterschiede-opnsense-vs-unifi)
 - [Datenschutz-Tresor & LLM-Sanitization](#-datenschutz-tresor--llm-sanitization)
 - [Interaktiver Regel-Editor & KI-Assistent](#-interaktiver-regel-editor--ki-assistent)
@@ -45,6 +46,54 @@ flowchart TD
     F --> G["UniFiGatewayClient (Dry-Run Simulation)"]
     G --> H["Live Deployment auf UCG-Max (HTTPS REST API)"]
 ```
+
+---
+
+## 🔀 3-Wege Multi-Source Konsolidierung (OPNsense + UCG-Max + UniFi OS Server)
+
+In realen Migrationsszenarien existieren häufig bereits Vorarbeiten oder aktive Controller:
+1. Das **Cloud Gateway Max (UCG-Max)** wurde bereits vor einem Jahr in Betrieb genommen und enthält teilweise Netzwerke oder Test-Konfigurationen.
+2. Der **bisherige UniFi OS Server (UOS)** steuert aktuell die produktiven UniFi Access Points und Switches und enthält wertvolle Wi-Fi Profile (SSIDs, WPA-Schlüssel) sowie benutzerdefinierte Klarnamen für Netzwerkgeräte.
+3. Die **OPNsense Firewall (26.7.5)** ist die maßgebliche Master-Quelle für Subnetze, Routing, DHCP-Reservierungen, Port-Forwards und Firewall-Regeln.
+
+Die Suite führt diese **drei Datenquellen intelligent zusammen (`src/translator/merger.py`)**, statt das UCG-Max blind zu überschreiben:
+
+```mermaid
+flowchart TD
+    subgraph Quellen
+        OPN["OPNsense config.xml<br>Master: Subnetze, Regeln, NAT, DHCP"]
+        UCG["UCG-Max Ist-Zustand<br>Bereits bestehende VLANs & Gateway-Regeln"]
+        UOS["UniFi OS Server Ist-Zustand<br>WLAN SSIDs, WPA Keys, APs, Client-Namen"]
+    end
+
+    OPN & UCG & UOS --> MERGER["MultiSourceMerger<br>(3-Wege-Abgleich & Kollisionsvermeidung)"]
+
+    MERGER --> RES1["Netzwerk-Abgleich:<br>Bestehende UCG-Netze aktualisieren (kein HTTP 400 Fehler),<br>UCG-eigene Netze schützen, Subnetz-Konflikte melden"]
+    MERGER --> RES2["WLAN-Integration:<br>Bisherige SSIDs & Keys übernehmen und an OPNsense-VLANs binden"]
+    MERGER --> RES3["Client-Enrichment:<br>Kryptische OPNsense-Hostnamen durch Klarnamen aus UOS anreichern"]
+    MERGER --> RES4["Hardware-Inventar:<br>UniFi APs & Switche katalogisieren für 1-Klick set-inform Adoption"]
+```
+
+### Die vier Kernmechanismen des 3-Wege-Abgleichs:
+
+1. **Netzwerk-Harmonisierung & Kollisionsschutz:**
+   - In UniFi führt der Versuch, ein Netzwerk mit bereits vergebener VLAN-ID oder gleichem Namen neu anzulegen (`POST`), zu einem `HTTP 400 Bad Request`.
+   - Der Merger prüft vorhandene UCG-Netze: Identische Netze werden als `update_existing_on_ucg` markiert, neue Netze als `create_new_on_ucg`.
+   - Netze, die nur auf dem UCG existieren, werden als `preserve_ucg` geschützt (niemals gelöscht).
+   - Weichen die Subnetz-CIDRs zwischen OPNsense und UCG-Max ab, schlägt die Matrix als `conflict` Alarm für eine manuelle Entscheidung.
+
+2. **WLAN & SSID Übernahme aus dem UniFi Server:**
+   - OPNsense enthält naturgemäß keine UniFi Wi-Fi Profile.
+   - Der Merger liest alle SSIDs, Sicherheitsstandards (WPA2/WPA3-PSK) und Passphrasen aus dem UOS-Server aus und bindet sie automatisch an die entsprechenden migrierten OPNsense VLAN-IDs.
+
+3. **Client-Klarnamen-Anreicherung:**
+   - In OPNsense lauten Hostnamen oft generisch (z.B. `android-abc123` oder `pc-01`).
+   - Im UniFi Controller wurden über Jahre hinweg sprechende Namen gepflegt (z.B. `Chef-MacBook-Pro`, `Kassenterminal-Theke`).
+   - Der Merger verknüpft MAC-Adressen und reichert die festen DHCP-Leases mit den lesbaren Klarnamen aus dem UniFi Server an.
+
+4. **Geräte-Inventar & Adoptions-Plan für APs & Switche:**
+   - Alle aktuell am alten UOS Server registrierten UniFi APs und Switches werden mit MAC, IP und Modell erfasst.
+   - Die Suite bereitet den direkten Umzugsbefehl vor (`set-inform http://<ucg-ip>:8080/inform`).
 
 ---
 

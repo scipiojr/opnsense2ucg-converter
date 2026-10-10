@@ -13,10 +13,11 @@ from starlette.routing import Route, Mount
 from starlette.requests import Request
 from starlette.staticfiles import StaticFiles
 
-from src.models import OPNsenseConfig, UniFiTargetConfig
+from src.models import OPNsenseConfig, UniFiTargetConfig, UniFiSourceState, ReconciliationReport
 from src.opnsense.parser import OPNsenseParser
 from src.sanitizer.masker import SanitizerVault
 from src.translator.mapper import UniFiMapper
+from src.translator.merger import MultiSourceMerger
 from src.llm.engine import LLMTranslationEngine
 from src.unifi.client import UniFiGatewayClient
 
@@ -29,6 +30,9 @@ class SessionState:
     unifi_cfg: Optional[UniFiTargetConfig] = None
     llm_explanation: str = ""
     llm_recommendations: list = []
+    ucg_state: Optional[UniFiSourceState] = None
+    uos_state: Optional[UniFiSourceState] = None
+    reconciliation_report: Optional[ReconciliationReport] = None
 
 
 state = SessionState()
@@ -77,6 +81,10 @@ async def process_xml(xml_content: str) -> JSONResponse:
     state.vault = SanitizerVault(anonymize_macs=False)
     mapper = UniFiMapper(state.opnsense_cfg)
     state.unifi_cfg = mapper.map_all(enforce_inter_vlan_block=True)
+
+    if state.ucg_state or state.uos_state:
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state)
+        state.reconciliation_report = merger.reconcile()
 
     return JSONResponse({
         "success": True,
@@ -251,6 +259,39 @@ def get_unifi_config_dict() -> Dict[str, Any]:
             }
             for o in getattr(state.unifi_cfg, "omitted_items", [])
         ],
+        "wlans": [
+            {
+                "name": w.name,
+                "security": w.security,
+                "vlan_id": w.vlan_id,
+                "is_guest": w.is_guest,
+                "enabled": w.enabled,
+            }
+            for w in getattr(state.unifi_cfg, "wlans", [])
+        ],
+        "reconciliation": (
+            {
+                "ucg_connected": rep.ucg_connected,
+                "uos_connected": rep.uos_connected,
+                "ucg_version": rep.ucg_version,
+                "uos_version": rep.uos_version,
+                "summary": rep.summary,
+                "items": [
+                    {
+                        "category": item.category,
+                        "key": item.key,
+                        "opnsense_val": item.opnsense_val,
+                        "ucg_val": item.ucg_val,
+                        "uos_val": item.uos_val,
+                        "status": item.status,
+                        "action": item.action,
+                        "explanation": item.explanation,
+                    }
+                    for item in rep.items
+                ],
+            }
+            if (rep := getattr(state.unifi_cfg, "reconciliation_report", None) or state.reconciliation_report) else None
+        ),
     }
 
 
@@ -580,6 +621,107 @@ async def apply_llm_suggestion_api(request: Request) -> JSONResponse:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
+async def fetch_ucg_live_api(request: Request) -> JSONResponse:
+    try:
+        body = await request.json()
+        host = body.get("host", "192.168.1.1")
+        username = body.get("username", "")
+        password = body.get("password", "")
+        api_key = body.get("api_key") or None
+        port = int(body.get("port", 443))
+        site = body.get("site", "default")
+
+        client = UniFiGatewayClient(
+            host=host,
+            username=username,
+            password=password,
+            api_key=api_key,
+            site=site,
+            port=port,
+        )
+
+        live_state = client.fetch_live_state(source_type="ucg_max")
+        state.ucg_state = live_state
+
+        if state.opnsense_cfg and state.unifi_cfg:
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state)
+            state.reconciliation_report = merger.reconcile()
+
+        unifi_dict = get_unifi_config_dict()
+        return JSONResponse({
+            "success": True,
+            "source": "ucg_max",
+            "host": host,
+            "version": live_state.version,
+            "summary": live_state.raw_summary,
+            "reconciliation": unifi_dict.get("reconciliation"),
+            "unifi_mapped": unifi_dict,
+        })
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+async def fetch_uos_live_api(request: Request) -> JSONResponse:
+    try:
+        body = await request.json()
+        host = body.get("host", "192.168.1.5")
+        username = body.get("username", "")
+        password = body.get("password", "")
+        api_key = body.get("api_key") or None
+        port = int(body.get("port", 8443))
+        site = body.get("site", "default")
+
+        client = UniFiGatewayClient(
+            host=host,
+            username=username,
+            password=password,
+            api_key=api_key,
+            site=site,
+            port=port,
+        )
+
+        live_state = client.fetch_live_state(source_type="uos_server")
+        state.uos_state = live_state
+
+        if state.opnsense_cfg and state.unifi_cfg:
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state)
+            state.reconciliation_report = merger.reconcile()
+
+        unifi_dict = get_unifi_config_dict()
+        return JSONResponse({
+            "success": True,
+            "source": "uos_server",
+            "host": host,
+            "version": live_state.version,
+            "summary": live_state.raw_summary,
+            "wlans_count": len(live_state.wlans),
+            "devices_count": len(live_state.devices),
+            "reconciliation": unifi_dict.get("reconciliation"),
+            "unifi_mapped": unifi_dict,
+        })
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+async def reconcile_sources_api(request: Request) -> JSONResponse:
+    try:
+        if not state.opnsense_cfg or not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "Bitte laden Sie zuerst die OPNsense XML-Konfiguration."}, status_code=400)
+
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state)
+        report = merger.reconcile()
+        state.reconciliation_report = report
+
+        unifi_dict = get_unifi_config_dict()
+        return JSONResponse({
+            "success": True,
+            "reconciliation": unifi_dict.get("reconciliation"),
+            "unifi_mapped": unifi_dict,
+        })
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
 routes = [
     Route("/", endpoint=index_view, methods=["GET"]),
     Route("/api/load-sample", endpoint=load_sample_api, methods=["POST"]),
@@ -597,6 +739,10 @@ routes = [
     Route("/api/rules/bulk-status", endpoint=bulk_rule_status_api, methods=["POST"]),
     Route("/api/rules/llm-assist", endpoint=llm_assist_rule_api, methods=["POST"]),
     Route("/api/rules/apply-llm-suggestion", endpoint=apply_llm_suggestion_api, methods=["POST"]),
+    Route("/api/sources/fetch-ucg", endpoint=fetch_ucg_live_api, methods=["POST"]),
+    Route("/api/sources/fetch-uos", endpoint=fetch_uos_live_api, methods=["POST"]),
+    Route("/api/sources/reconcile", endpoint=reconcile_sources_api, methods=["POST"]),
 ]
 
 app = Starlette(debug=True, routes=routes)
+

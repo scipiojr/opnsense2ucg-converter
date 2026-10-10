@@ -20,6 +20,9 @@ from src.models import (
     UniFiFirewallRule,
     UniFiPortForward,
     UniFiFixedIp,
+    UniFiSourceState,
+    UniFiWlan,
+    UniFiDevice,
 )
 
 # Suppress self-signed certificate warnings for local gateway access
@@ -39,6 +42,15 @@ class UniFiGatewayClient:
         verify_ssl: bool = False,
     ):
         self.host = host.replace("http://", "").replace("https://", "").rstrip("/")
+        # If user specified port in host string (e.g. 192.168.1.5:8443)
+        if ":" in self.host:
+            parts = self.host.split(":")
+            self.host = parts[0]
+            try:
+                port = int(parts[1])
+            except ValueError:
+                pass
+
         self.username = username
         self.password = password
         self.api_key = api_key
@@ -56,45 +68,162 @@ class UniFiGatewayClient:
 
     def login(self) -> bool:
         """
-        Authenticates against UniFi OS Console (UCG-Max).
+        Authenticates against UniFi OS Console (UCG-Max) or standalone UniFi Network Server (UOS).
+        Automatically falls back between modern UniFi OS proxy and legacy Network Application.
         """
         if self.api_key:
             self.session.headers.update({"X-API-KEY": self.api_key})
             self.logged_in = True
             return True
 
-        login_url = f"{self.base_url}/api/auth/login"
-        payload = {"username": self.username, "password": self.password, "token": ""}
+        # Try UniFi OS login first (UCG-Max / UDM on port 443)
+        if self.port != 8443:
+            login_url = f"{self.base_url}/api/auth/login"
+            payload = {"username": self.username, "password": self.password, "token": ""}
+            try:
+                res = self.session.post(login_url, json=payload, timeout=8)
+                if res.status_code == 200:
+                    self.csrf_token = res.headers.get("x-csrf-token", "")
+                    if self.csrf_token:
+                        self.session.headers.update({"x-csrf-token": self.csrf_token})
+                    self.api_prefix = f"{self.base_url}/proxy/network/api/s/{self.site}"
+                    self.logged_in = True
+                    return True
+            except Exception:
+                pass
 
+        # Fallback to standalone Network Application login (classic UOS Server on 8443 or 443)
+        login_url_legacy = f"{self.base_url}/api/login"
+        payload_legacy = {"username": self.username, "password": self.password}
         try:
-            res = self.session.post(login_url, json=payload, timeout=10)
+            res = self.session.post(login_url_legacy, json=payload_legacy, timeout=8)
             if res.status_code == 200:
-                self.csrf_token = res.headers.get("x-csrf-token", "")
-                if self.csrf_token:
-                    self.session.headers.update({"x-csrf-token": self.csrf_token})
+                self.api_prefix = f"{self.base_url}/api/s/{self.site}"
                 self.logged_in = True
                 return True
             else:
                 logger.error(f"Login failed: HTTP {res.status_code} - {res.text}")
                 return False
         except Exception as e:
-            logger.error(f"Connection error connecting to UCG-Max at {self.host}: {str(e)}")
+            logger.error(f"Connection error to UniFi at {self.host}:{self.port}: {str(e)}")
             return False
 
     def test_connection(self) -> Tuple[bool, str]:
         try:
             if not self.login():
-                return False, f"Authentication failed on {self.host}. Please check credentials."
+                return False, f"Authentication failed on {self.host}:{self.port}. Please check credentials."
             # Verify network application responds
-            sys_info_url = f"{self.base_url}/proxy/network/api/s/{self.site}/stat/sysinfo"
+            sys_info_url = f"{self.api_prefix}/stat/sysinfo"
             res = self.session.get(sys_info_url, timeout=10)
             if res.status_code == 200:
                 info = res.json().get("data", [{}])[0]
                 version = info.get("version", "unknown")
-                return True, f"Successfully connected to UniFi Cloud Gateway Max (Network Version {version})"
-            return True, f"Authenticated with UniFi OS, but network API returned status {res.status_code}"
+                hostname = info.get("hostname", self.host)
+                return True, f"Successfully connected to UniFi ({hostname}, Version {version})"
+            return True, f"Authenticated with UniFi, but network API returned status {res.status_code}"
         except Exception as e:
             return False, f"Connection error: {str(e)}"
+
+    def fetch_live_state(self, source_type: str = "ucg_max") -> UniFiSourceState:
+        """
+        Queries all live configuration objects from the UniFi controller / gateway:
+        networks, WLAN SSIDs, adopted devices, known clients / fixed IPs, and firewall rules.
+        """
+        if not self.logged_in:
+            if not self.login():
+                raise RuntimeError(f"Could not authenticate with {self.host}:{self.port}")
+
+        version = "unknown"
+        try:
+            res = self.session.get(f"{self.api_prefix}/stat/sysinfo", timeout=10)
+            if res.status_code == 200:
+                version = res.json().get("data", [{}])[0].get("version", "unknown")
+        except Exception:
+            pass
+
+        # 1. Networks
+        networks = []
+        try:
+            res = self.session.get(f"{self.api_prefix}/rest/networkconf", timeout=10)
+            if res.status_code == 200:
+                networks = res.json().get("data", [])
+        except Exception as e:
+            logger.warning(f"Failed to fetch networks: {e}")
+
+        # 2. WLAN SSIDs
+        wlans = []
+        try:
+            res = self.session.get(f"{self.api_prefix}/rest/wlanconf", timeout=10)
+            if res.status_code == 200:
+                for w in res.json().get("data", []):
+                    wlans.append(
+                        UniFiWlan(
+                            name=w.get("name", ""),
+                            security=w.get("security", "wpapsk"),
+                            x_passphrase=w.get("x_passphrase", ""),
+                            vlan_id=w.get("vlan", None),
+                            is_guest=w.get("is_guest", False),
+                            enabled=w.get("enabled", True),
+                            network_id=w.get("networkconf_id", None),
+                        )
+                    )
+        except Exception as e:
+            logger.warning(f"Failed to fetch wlanconf: {e}")
+
+        # 3. Adopted Devices (APs & Switches)
+        devices = []
+        try:
+            res = self.session.get(f"{self.api_prefix}/stat/device", timeout=10)
+            if res.status_code == 200:
+                for d in res.json().get("data", []):
+                    devices.append(
+                        UniFiDevice(
+                            name=d.get("name") or d.get("model", "UniFi Device"),
+                            mac=d.get("mac", ""),
+                            model=d.get("model", ""),
+                            ip=d.get("ip", ""),
+                            device_type=d.get("type", "uap"),
+                            adopted=d.get("adopted", True),
+                        )
+                    )
+        except Exception as e:
+            logger.warning(f"Failed to fetch devices: {e}")
+
+        # 4. Clients / Fixed IPs
+        clients = []
+        try:
+            res = self.session.get(f"{self.api_prefix}/rest/user", timeout=10)
+            if res.status_code == 200:
+                clients = res.json().get("data", [])
+        except Exception as e:
+            logger.warning(f"Failed to fetch clients: {e}")
+
+        # 5. Firewall Rules
+        firewall_rules = []
+        try:
+            res = self.session.get(f"{self.api_prefix}/rest/firewallrule", timeout=10)
+            if res.status_code == 200:
+                firewall_rules = res.json().get("data", [])
+        except Exception as e:
+            logger.warning(f"Failed to fetch firewall rules: {e}")
+
+        return UniFiSourceState(
+            source_type=source_type,
+            host=self.host,
+            version=version,
+            networks=networks,
+            wlans=wlans,
+            devices=devices,
+            clients=clients,
+            firewall_rules=firewall_rules,
+            raw_summary={
+                "networks_count": len(networks),
+                "wlans_count": len(wlans),
+                "devices_count": len(devices),
+                "clients_count": len(clients),
+                "firewall_rules_count": len(firewall_rules),
+            },
+        )
 
     def dry_run(self, target_config: UniFiTargetConfig) -> Dict[str, Any]:
         """

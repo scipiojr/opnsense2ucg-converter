@@ -235,6 +235,62 @@ class UniFiPortForward:
 
 
 @dataclass
+class UniFiWlan:
+    name: str                       # SSID
+    security: str = "wpapsk"        # "wpapsk", "wpa2", "wpa3", "open"
+    x_passphrase: str = ""          # Pre-Shared Key
+    vlan_id: Optional[int] = None   # Target VLAN tag
+    is_guest: bool = False
+    enabled: bool = True
+    network_id: Optional[str] = None
+
+
+@dataclass
+class UniFiDevice:
+    name: str
+    mac: str
+    model: str = ""
+    ip: str = ""
+    device_type: str = "uap"        # "uap", "usw", "ugw", etc.
+    adopted: bool = True
+
+
+@dataclass
+class UniFiSourceState:
+    source_type: str                # "ucg_max", "uos_server", "json_import"
+    host: str = ""
+    version: str = ""
+    networks: List[Dict[str, Any]] = field(default_factory=list)
+    wlans: List[UniFiWlan] = field(default_factory=list)
+    devices: List[UniFiDevice] = field(default_factory=list)
+    clients: List[Dict[str, Any]] = field(default_factory=list)
+    firewall_rules: List[Dict[str, Any]] = field(default_factory=list)
+    raw_summary: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ReconciliationItem:
+    category: str                   # "network", "wlan", "client", "firewall_rule"
+    key: str                        # Identifier e.g. "VLAN 20 (IOT)", "SSID Home-Net"
+    opnsense_val: Optional[str] = None
+    ucg_val: Optional[str] = None
+    uos_val: Optional[str] = None
+    status: str = "aligned"         # "aligned", "create", "update", "conflict", "import_uos", "preserve_ucg"
+    action: str = ""                # Strategy applied
+    explanation: str = ""
+
+
+@dataclass
+class ReconciliationReport:
+    ucg_connected: bool = False
+    uos_connected: bool = False
+    ucg_version: str = ""
+    uos_version: str = ""
+    items: List[ReconciliationItem] = field(default_factory=list)
+    summary: Dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
 class UniFiTargetConfig:
     networks: List[UniFiNetwork] = field(default_factory=list)
     firewall_groups: List[UniFiFirewallGroup] = field(default_factory=list)
@@ -247,3 +303,5 @@ class UniFiTargetConfig:
     wireguard_servers: List[UniFiWireGuardServer] = field(default_factory=list)
     smart_queue: Optional[UniFiSmartQueue] = None
     omitted_items: List[OmittedItem] = field(default_factory=list)
+    wlans: List[UniFiWlan] = field(default_factory=list)
+    reconciliation_report: Optional[ReconciliationReport] = None

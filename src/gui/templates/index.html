@@ -65,24 +65,27 @@
 
   <!-- Navigation Tabs -->
   <nav class="border-b border-slate-800 bg-slate-900/40">
-    <div class="max-w-7xl mx-auto px-4 flex space-x-8 text-sm">
-      <button onclick="switchTab('import')" id="tab-btn-import" class="py-3 px-1 tab-active flex items-center gap-2">
-        <i class="fa-solid fa-file-import"></i> 1. Import & OPNsense Analyse
+    <div class="max-w-7xl mx-auto px-4 flex space-x-8 text-sm overflow-x-auto">
+      <button onclick="switchTab('import')" id="tab-btn-import" class="py-3 px-1 tab-active flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-file-import"></i> 1. Import &amp; OPNsense Analyse
       </button>
-      <button onclick="switchTab('sanitize')" id="tab-btn-sanitize" class="py-3 px-1 tab-inactive flex items-center gap-2">
-        <i class="fa-solid fa-shield-halved"></i> 2. Datenschutz & Anonymisierung
+      <button onclick="switchTab('sources')" id="tab-btn-sources" class="py-3 px-1 tab-inactive flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-network-wired text-cyan-400"></i> 2. Live-Quellen &amp; 3-Wege-Sync
       </button>
-      <button onclick="switchTab('llm')" id="tab-btn-llm" class="py-3 px-1 tab-inactive flex items-center gap-2">
-        <i class="fa-solid fa-brain"></i> 3. LLM Regel-Übersetzer
+      <button onclick="switchTab('sanitize')" id="tab-btn-sanitize" class="py-3 px-1 tab-inactive flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-shield-halved"></i> 3. Datenschutz &amp; Anonymisierung
       </button>
-      <button onclick="switchTab('review')" id="tab-btn-review" class="py-3 px-1 tab-inactive flex items-center gap-2">
-        <i class="fa-solid fa-sliders"></i> 4. UniFi Konfig Review
+      <button onclick="switchTab('llm')" id="tab-btn-llm" class="py-3 px-1 tab-inactive flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-brain"></i> 4. LLM Regel-Übersetzer
       </button>
-      <button onclick="switchTab('deploy')" id="tab-btn-deploy" class="py-3 px-1 tab-inactive flex items-center gap-2">
-        <i class="fa-solid fa-rocket"></i> 5. UCG-Max Rollout
+      <button onclick="switchTab('review')" id="tab-btn-review" class="py-3 px-1 tab-inactive flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-sliders"></i> 5. UniFi Konfig Review
       </button>
-      <button onclick="switchTab('hardware')" id="tab-btn-hardware" class="py-3 px-1 tab-inactive flex items-center gap-2">
-        <i class="fa-solid fa-diagram-project"></i> 6. APs & Switch Roadmap
+      <button onclick="switchTab('deploy')" id="tab-btn-deploy" class="py-3 px-1 tab-inactive flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-rocket"></i> 6. UCG-Max Rollout
+      </button>
+      <button onclick="switchTab('hardware')" id="tab-btn-hardware" class="py-3 px-1 tab-inactive flex items-center gap-2 whitespace-nowrap">
+        <i class="fa-solid fa-diagram-project"></i> 7. APs &amp; Switch Roadmap
       </button>
     </div>
   </nav>
@@ -243,7 +246,199 @@
       </div>
     </div>
 
-    <!-- TAB 2: PRIVACY & SANITIZATION -->
+    <!-- TAB 2: LIVE-QUELLEN & 3-WEGE-SYNC -->
+    <div id="tab-sources" class="space-y-6 hidden">
+      <!-- Info Header -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="flex flex-col md:flex-row md:items-start justify-between gap-4">
+          <div>
+            <h2 class="text-base font-semibold text-cyan-400 flex items-center gap-2">
+              <i class="fa-solid fa-network-wired"></i> 3-Wege Multi-Source Konsolidierung &amp; Synchronisation
+            </h2>
+            <p class="text-xs text-slate-400 mt-1 max-w-3xl leading-relaxed">
+              Führt Ihre <strong>drei Datenquellen</strong> nahtlos und verlustfrei zusammen:
+              <br>• <strong>OPNsense XML:</strong> Führende Master-Quelle für Routing, VLANs, Subnetze, DHCP-Reservierungen, Port-Forwards &amp; Firewall-Regeln.
+              <br>• <strong>UCG-Max Ist-Zustand:</strong> Bereits vorhandene Gateway-Konfiguration. Verhindert doppelte VLAN-Erstellung (HTTP 400), schützt bestehende UCG-Netze vor dem Löschen und deckt IP-Konflikte auf.
+              <br>• <strong>UniFi OS Server:</strong> Bisheriger Controller. Übernimmt bestehende Wi-Fi SSIDs samt Verschlüsselung (WPA-Keys), bindet sie an OPNsense-VLANs und reichert kryptische Hostnamen mit freundlichen Klarnamen an.
+            </p>
+          </div>
+          <button onclick="triggerReconcile()" class="bg-cyan-600 hover:bg-cyan-500 text-white text-xs px-4 py-2.5 rounded-lg font-semibold transition flex items-center gap-2 shrink-0 shadow-lg shadow-cyan-900/30">
+            <i class="fa-solid fa-arrows-rotate"></i> 3-Wege-Sync ausführen
+          </button>
+        </div>
+      </div>
+
+      <!-- Connection Cards: UCG-Max & UOS Server -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Card 1: UCG-Max -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-sky-300 flex items-center gap-2">
+              <i class="fa-solid fa-server text-sky-400"></i> UniFi Cloud Gateway Max (Ist-Zustand)
+            </h3>
+            <span id="ucg-source-status" class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">Nicht abgefragt</span>
+          </div>
+          <p class="text-xs text-slate-400">
+            Liest die bereits auf Ihrem UCG-Max eingerichteten Netzwerke, VLANs und IP-Bereiche aus.
+          </p>
+          <div class="grid grid-cols-3 gap-3">
+            <div class="col-span-2">
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Host / IP</label>
+              <input type="text" id="src-ucg-host" value="192.168.1.1" onchange="syncUcgCredentials()" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Port</label>
+              <input type="number" id="src-ucg-port" value="443" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Benutzername</label>
+              <input type="text" id="src-ucg-user" value="admin" onchange="syncUcgCredentials()" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Passwort</label>
+              <input type="password" id="src-ucg-pass" onchange="syncUcgCredentials()" placeholder="Gateway Passwort" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            </div>
+          </div>
+          <div class="pt-1 flex items-center justify-between">
+            <span id="src-ucg-info" class="text-[11px] text-slate-400">Noch keine Live-Daten</span>
+            <button onclick="fetchUcgState()" id="btn-fetch-ucg" class="bg-sky-600 hover:bg-sky-500 text-white text-xs px-3.5 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5">
+              <i class="fa-solid fa-cloud-arrow-down"></i> UCG-Ist-Zustand abrufen
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 2: UOS Server -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-purple-300 flex items-center gap-2">
+              <i class="fa-solid fa-wifi text-purple-400"></i> Bisheriger UniFi OS Server (WLAN &amp; APs)
+            </h3>
+            <span id="uos-source-status" class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">Nicht abgefragt</span>
+          </div>
+          <p class="text-xs text-slate-400">
+            Liest alle Wi-Fi SSIDs, WPA-Passwörter, VLAN-Bindings, adoptierte APs/Switche sowie Klarnamen von Geräten aus.
+          </p>
+          <div class="grid grid-cols-3 gap-3">
+            <div class="col-span-2">
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Host / IP</label>
+              <input type="text" id="src-uos-host" value="192.168.1.5" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Port</label>
+              <input type="number" id="src-uos-port" value="8443" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Benutzername</label>
+              <input type="text" id="src-uos-user" value="admin" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-400 mb-1">Passwort</label>
+              <input type="password" id="src-uos-pass" placeholder="Server Passwort" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            </div>
+          </div>
+          <div class="pt-1 flex items-center justify-between">
+            <span id="src-uos-info" class="text-[11px] text-slate-400">Noch keine Live-Daten</span>
+            <button onclick="fetchUosState()" id="btn-fetch-uos" class="bg-purple-600 hover:bg-purple-500 text-white text-xs px-3.5 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5">
+              <i class="fa-solid fa-cloud-arrow-down"></i> UOS-Ist-Zustand abrufen
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Summary Metrics Bar -->
+      <div id="reconciliation-metrics" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
+        <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
+          <span class="text-[10px] text-slate-400 block mb-0.5">Netze abgeglichen</span>
+          <span id="rec-m-aligned" class="text-xl font-bold text-emerald-400">0</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
+          <span class="text-[10px] text-slate-400 block mb-0.5">Netze neu auf UCG</span>
+          <span id="rec-m-create" class="text-xl font-bold text-sky-400">0</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
+          <span class="text-[10px] text-slate-400 block mb-0.5">UCG-Netze geschützt</span>
+          <span id="rec-m-preserved" class="text-xl font-bold text-cyan-400">0</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
+          <span class="text-[10px] text-slate-400 block mb-0.5">Subnetz-Konflikte</span>
+          <span id="rec-m-conflicts" class="text-xl font-bold text-amber-400">0</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
+          <span class="text-[10px] text-slate-400 block mb-0.5">WLANs importiert</span>
+          <span id="rec-m-wlans" class="text-xl font-bold text-purple-400">0</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
+          <span class="text-[10px] text-slate-400 block mb-0.5">Namen angereichert</span>
+          <span id="rec-m-clients" class="text-xl font-bold text-teal-400">0</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
+          <span class="text-[10px] text-slate-400 block mb-0.5">UniFi APs &amp; Switche</span>
+          <span id="rec-m-devices" class="text-xl font-bold text-indigo-400">0</span>
+        </div>
+      </div>
+
+      <!-- 3-Way Reconciliation Matrix Table -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <h3 class="text-sm font-semibold flex items-center gap-2 text-cyan-300">
+          <i class="fa-solid fa-code-compare"></i> 3-Wege Abgleich-Matrix: OPNsense ↔ UCG-Max ↔ UniFi OS Server
+        </h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left">
+            <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+              <tr>
+                <th class="py-2.5 px-3">Kategorie</th>
+                <th class="py-2.5 px-3">Element</th>
+                <th class="py-2.5 px-3">OPNsense (Soll)</th>
+                <th class="py-2.5 px-3">UCG-Max (Ist)</th>
+                <th class="py-2.5 px-3">UOS Server (Ist)</th>
+                <th class="py-2.5 px-3">Status / Aktion</th>
+                <th class="py-2.5 px-3">Erläuterung &amp; Strategie</th>
+              </tr>
+            </thead>
+            <tbody id="reconciliation-tbody" class="divide-y divide-slate-800">
+              <tr>
+                <td colspan="7" class="py-6 text-center text-slate-500">
+                  Laden Sie zuerst die OPNsense XML und rufen Sie oben den Ist-Zustand von UCG-Max und UOS-Server ab.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Imported WLANs Table (from UOS) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <h3 class="text-sm font-semibold flex items-center gap-2 text-purple-300">
+          <i class="fa-solid fa-wifi"></i> Aus UniFi OS Server übernommene Wi-Fi Netzwerke (SSIDs)
+        </h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left">
+            <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+              <tr>
+                <th class="py-2.5 px-3">SSID Name</th>
+                <th class="py-2.5 px-3">Sicherheitsstandard</th>
+                <th class="py-2.5 px-3">Ziel-VLAN (OPNsense Bindung)</th>
+                <th class="py-2.5 px-3">Gast-Netzwerk</th>
+                <th class="py-2.5 px-3">Status für UCG-Max</th>
+              </tr>
+            </thead>
+            <tbody id="wlans-tbody" class="divide-y divide-slate-800">
+              <tr>
+                <td colspan="5" class="py-4 text-center text-slate-500">
+                  Noch keine WLANs aus UniFi Server abgerufen.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: PRIVACY & SANITIZATION -->
     <div id="tab-sanitize" class="space-y-6 hidden">
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
         <div class="flex items-start justify-between">
@@ -595,6 +790,33 @@
             </div>
           </div>
         </div>
+
+        <!-- Wi-Fi WLANs from UOS -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 md:col-span-2">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold flex items-center gap-2 text-purple-300">
+              <i class="fa-solid fa-wifi text-purple-400"></i> Wi-Fi Netzwerke (SSIDs aus UniFi Server)
+            </h3>
+            <button onclick="switchTab('sources')" class="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i> In 3-Wege-Sync verwalten
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+                <tr>
+                  <th class="py-2 px-3">SSID Name</th>
+                  <th class="py-2 px-3">Sicherheit</th>
+                  <th class="py-2 px-3">Ziel-VLAN</th>
+                  <th class="py-2 px-3">Typ</th>
+                </tr>
+              </thead>
+              <tbody id="unifi-wlans-review-tbody" class="divide-y divide-slate-800">
+                <tr><td colspan="4" class="py-3 text-center text-slate-500">Keine WLANs geladen. Rufen Sie die Daten im Tab "2. Live-Quellen &amp; 3-Wege-Sync" ab.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -910,16 +1132,16 @@
   <script>
     // Tab Switching
     function switchTab(tabId) {
-      const tabs = ['import', 'sanitize', 'llm', 'review', 'deploy', 'hardware'];
+      const tabs = ['import', 'sources', 'sanitize', 'llm', 'review', 'deploy', 'hardware'];
       tabs.forEach(t => {
         const el = document.getElementById('tab-' + t);
         const btn = document.getElementById('tab-btn-' + t);
         if (t === tabId) {
           el.classList.remove('hidden');
-          btn.className = 'py-3 px-1 tab-active flex items-center gap-2';
+          btn.className = 'py-3 px-1 tab-active flex items-center gap-2 whitespace-nowrap';
         } else {
           el.classList.add('hidden');
-          btn.className = 'py-3 px-1 tab-inactive flex items-center gap-2';
+          btn.className = 'py-3 px-1 tab-inactive flex items-center gap-2 whitespace-nowrap';
         }
       });
     }
@@ -1519,6 +1741,237 @@
 
       const trCount = (u.traffic_rules ? u.traffic_rules.length : 0);
       document.getElementById('unifi-traffic-rules-count').innerText = `${trCount} Traffic Rules (Domain/Region)`;
+
+      // Render Reconciliation & WLANs if available
+      if (u.reconciliation) {
+        renderReconciliation(u.reconciliation);
+      }
+      if (u.wlans) {
+        renderWlans(u.wlans);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Multi-Source Reconciliation & Merger
+    // -------------------------------------------------------------------------
+    function syncUcgCredentials() {
+      const h = document.getElementById('src-ucg-host')?.value;
+      const u = document.getElementById('src-ucg-user')?.value;
+      const p = document.getElementById('src-ucg-pass')?.value;
+      if (document.getElementById('ucg-host') && h) document.getElementById('ucg-host').value = h;
+      if (document.getElementById('ucg-user') && u) document.getElementById('ucg-user').value = u;
+      if (document.getElementById('ucg-pass') && p) document.getElementById('ucg-pass').value = p;
+    }
+
+    function renderReconciliation(rep) {
+      if (!rep) return;
+      const m = rep.summary || {};
+      const elAl = document.getElementById('rec-m-aligned');
+      const elCr = document.getElementById('rec-m-create');
+      const elPr = document.getElementById('rec-m-preserved');
+      const elCo = document.getElementById('rec-m-conflicts');
+      const elWl = document.getElementById('rec-m-wlans');
+      const elCl = document.getElementById('rec-m-clients');
+      const elDv = document.getElementById('rec-m-devices');
+
+      if (elAl) elAl.innerText = m.networks_aligned || 0;
+      if (elCr) elCr.innerText = m.networks_to_create || 0;
+      if (elPr) elPr.innerText = m.networks_preserved || 0;
+      if (elCo) elCo.innerText = m.networks_conflicts || 0;
+      if (elWl) elWl.innerText = m.wlans_imported || 0;
+      if (elCl) elCl.innerText = m.clients_enriched || 0;
+      if (elDv) elDv.innerText = m.devices_mapped || 0;
+
+      const tbody = document.getElementById('reconciliation-tbody');
+      if (!tbody) return;
+
+      if (!rep.items || rep.items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">Keine Abweichungen oder Konflikte festgestellt.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = rep.items.map(item => {
+        let badge = '';
+        if (item.status === 'aligned') {
+          badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">ABGEGLICHEN</span>';
+        } else if (item.status === 'create') {
+          badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-950 text-sky-400 border border-sky-800">NEU AUF UCG</span>';
+        } else if (item.status === 'preserve_ucg') {
+          badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800">UCG BEIBEHALTEN</span>';
+        } else if (item.status === 'conflict') {
+          badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-400 border border-amber-800">KONFLIKT</span>';
+        } else if (item.status === 'import_uos') {
+          badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-800">UOS IMPORT</span>';
+        } else {
+          badge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">${item.status}</span>`;
+        }
+
+        const catIcon = item.category === 'network' ? 'fa-network-wired text-sky-400' :
+                        item.category === 'wlan' ? 'fa-wifi text-purple-400' :
+                        item.category === 'client' ? 'fa-laptop text-teal-400' :
+                        item.category === 'device' ? 'fa-server text-indigo-400' : 'fa-tag text-slate-400';
+
+        return `
+          <tr class="hover:bg-slate-800/40">
+            <td class="py-2.5 px-3">
+              <span class="inline-flex items-center gap-1.5 font-semibold text-slate-300">
+                <i class="fa-solid ${catIcon}"></i> ${item.category.toUpperCase()}
+              </span>
+            </td>
+            <td class="py-2.5 px-3 font-semibold text-slate-200">${item.key}</td>
+            <td class="py-2.5 px-3 font-mono text-slate-300">${item.opnsense_val || '<span class="text-slate-600">-</span>'}</td>
+            <td class="py-2.5 px-3 font-mono text-sky-300">${item.ucg_val || '<span class="text-slate-600">-</span>'}</td>
+            <td class="py-2.5 px-3 font-mono text-purple-300">${item.uos_val || '<span class="text-slate-600">-</span>'}</td>
+            <td class="py-2.5 px-3">${badge}</td>
+            <td class="py-2.5 px-3 text-slate-400 text-xs">${item.explanation}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderWlans(wlans) {
+      const tbody1 = document.getElementById('wlans-tbody');
+      const tbody2 = document.getElementById('unifi-wlans-review-tbody');
+      if (!wlans || wlans.length === 0) {
+        if (tbody1) tbody1.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-500">Keine WLANs importiert.</td></tr>';
+        if (tbody2) tbody2.innerHTML = '<tr><td colspan="4" class="py-3 text-center text-slate-500">Keine WLANs geladen.</td></tr>';
+        return;
+      }
+      const html1 = wlans.map(w => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2.5 px-3 font-semibold text-purple-300 flex items-center gap-2">
+            <i class="fa-solid fa-wifi text-xs text-purple-400"></i> ${w.name}
+          </td>
+          <td class="py-2.5 px-3 font-mono text-slate-300">${(w.security || '').toUpperCase()}</td>
+          <td class="py-2.5 px-3 font-mono text-sky-400">${w.vlan_id ? 'VLAN ' + w.vlan_id : 'Default (Untagged)'}</td>
+          <td class="py-2.5 px-3">
+            <span class="px-2 py-0.5 rounded text-[10px] ${w.is_guest ? 'bg-amber-950 text-amber-400 border border-amber-800' : 'bg-slate-800 text-slate-400'}">
+              ${w.is_guest ? 'Gast-Netz' : 'Standard'}
+            </span>
+          </td>
+          <td class="py-2.5 px-3">
+            <span class="px-2 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800">
+              Bereit für UCG-Max
+            </span>
+          </td>
+        </tr>
+      `).join('');
+
+      const html2 = wlans.map(w => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2 px-3 font-semibold text-purple-300">${w.name}</td>
+          <td class="py-2 px-3 font-mono text-slate-300">${(w.security || '').toUpperCase()}</td>
+          <td class="py-2 px-3 font-mono text-sky-400">${w.vlan_id ? 'VLAN ' + w.vlan_id : 'Default (Untagged)'}</td>
+          <td class="py-2 px-3">${w.is_guest ? '<span class="text-amber-400">Gast</span>' : '<span class="text-slate-400">Intern</span>'}</td>
+        </tr>
+      `).join('');
+
+      if (tbody1) tbody1.innerHTML = html1;
+      if (tbody2) tbody2.innerHTML = html2;
+    }
+
+    async function fetchUcgState() {
+      const host = document.getElementById('src-ucg-host').value;
+      const port = document.getElementById('src-ucg-port').value;
+      const user = document.getElementById('src-ucg-user').value;
+      const pass = document.getElementById('src-ucg-pass').value;
+
+      syncUcgCredentials();
+
+      const btn = document.getElementById('btn-fetch-ucg');
+      const origHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Lese UCG...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/sources/fetch-ucg', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ host, port: parseInt(port), username: user, password: pass })
+        });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('ucg-source-status').className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800';
+          document.getElementById('ucg-source-status').innerText = 'Verbunden (v' + (data.version || 'aktiv') + ')';
+          document.getElementById('src-ucg-info').innerText = `${data.summary.networks_count} Netze, ${data.summary.firewall_rules_count} Regeln erkannt`;
+          showToast('UCG-Max Ist-Zustand erfolgreich eingelesen!');
+
+          if (data.reconciliation) {
+            renderReconciliation(data.reconciliation);
+          }
+          if (data.unifi_mapped) {
+            renderUnifiReview(data.unifi_mapped);
+          }
+        } else {
+          document.getElementById('ucg-source-status').className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-red-950 text-red-400 border border-red-800';
+          document.getElementById('ucg-source-status').innerText = 'Fehler';
+          showToast(data.error || 'Fehler beim Abrufen von UCG-Max', true);
+        }
+      } catch (err) {
+        showToast('Verbindungsfehler: ' + err.message, true);
+      } finally {
+        btn.innerHTML = origHtml;
+        btn.disabled = false;
+      }
+    }
+
+    async function fetchUosState() {
+      const host = document.getElementById('src-uos-host').value;
+      const port = document.getElementById('src-uos-port').value;
+      const user = document.getElementById('src-uos-user').value;
+      const pass = document.getElementById('src-uos-pass').value;
+
+      const btn = document.getElementById('btn-fetch-uos');
+      const origHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Lese UOS...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/sources/fetch-uos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ host, port: parseInt(port), username: user, password: pass })
+        });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('uos-source-status').className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800';
+          document.getElementById('uos-source-status').innerText = 'Verbunden (v' + (data.version || 'aktiv') + ')';
+          document.getElementById('src-uos-info').innerText = `${data.wlans_count} WLAN SSIDs, ${data.devices_count} APs/Switche erkannt`;
+          showToast('UniFi Server Ist-Zustand & WLANs erfolgreich eingelesen!');
+
+          if (data.reconciliation) {
+            renderReconciliation(data.reconciliation);
+          }
+          if (data.unifi_mapped) {
+            renderUnifiReview(data.unifi_mapped);
+          }
+        } else {
+          document.getElementById('uos-source-status').className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-red-950 text-red-400 border border-red-800';
+          document.getElementById('uos-source-status').innerText = 'Fehler';
+          showToast(data.error || 'Fehler beim Abrufen von UOS-Server', true);
+        }
+      } catch (err) {
+        showToast('Verbindungsfehler: ' + err.message, true);
+      } finally {
+        btn.innerHTML = origHtml;
+        btn.disabled = false;
+      }
+    }
+
+    async function triggerReconcile() {
+      try {
+        const res = await fetch('/api/sources/reconcile', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          if (data.reconciliation) renderReconciliation(data.reconciliation);
+          if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
+          showToast('3-Wege-Abgleich erfolgreich neu berechnet!');
+        } else {
+          showToast(data.error || 'Fehler beim Abgleich', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
     }
 
     // Sanitization Trigger
