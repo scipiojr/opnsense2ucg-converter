@@ -95,6 +95,16 @@ flowchart TD
    - Alle aktuell am alten UOS Server registrierten UniFi APs und Switches werden mit MAC, IP und Modell erfasst.
    - Die Suite bereitet den direkten Umzugsbefehl vor (`set-inform http://<ucg-ip>:8080/inform`).
 
+### 📁 100% Offline-Export-Dateien Import (*.unf, *.json, *.xml) & Fusion
+
+Sie müssen Ihr UCG-Max oder den UniFi Server **nicht zwingend online per Netzwerk anbinden**. Sie können einfach die Backup-/Export-Dateien hochladen:
+
+* **OPNsense Export:** `config.xml` (heruntergeladen unter *System > Configuration > Backups*).
+* **UCG-Max Export:** `.json` oder `.unf` (UniFi OS / Network Backup-Export).
+* **UniFi Server Backup:** `.unf` oder `.json` (heruntergeladen im alten UniFi Server unter *Settings > System > Backups*).
+
+Die Suite entschlüsselt `.unf`-Dateien automatisch lokal (AES-128-CBC), dekomprimiert die BSON-Datenbank (`db.gz`) und vereint alle 3 Quellen zu **einer einzigen konsolidierten Ziel-Konfiguration (`unifi_unified_config.json`)**, die Sie mit einem Klick herunterladen oder per Dry-Run simulieren können.
+
 ---
 
 ## ⚖️ Konzeptionelle Unterschiede (OPNsense vs. UniFi)

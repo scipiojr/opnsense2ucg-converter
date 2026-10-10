@@ -268,6 +268,107 @@
         </div>
       </div>
 
+      <!-- OPTION A: EXPORT FILES UPLOAD & MERGER -->
+      <div class="bg-slate-900 border border-cyan-800/60 rounded-xl p-5 space-y-4 shadow-sm">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div>
+            <h3 class="text-sm font-semibold text-cyan-300 flex items-center gap-2">
+              <i class="fa-solid fa-file-zipper text-cyan-400"></i> Option A: Export-Dateien hochladen &amp; vereinen (Offline-Modus)
+            </h3>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Laden Sie die Sicherungsdateien aller drei Quellen hoch (OPNsense <code>config.xml</code>, UCG-Max Export <code>.unf/.json</code> und UniFi Server Backup <code>.unf/.json</code>).
+            </p>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button onclick="unifyAllSources()" class="bg-cyan-600 hover:bg-cyan-500 text-white text-xs px-4 py-2 rounded-lg font-semibold transition flex items-center gap-2 shadow-lg shadow-cyan-900/40">
+              <i class="fa-solid fa-code-merge"></i> Alle 3 Quellen vereinen
+            </button>
+            <button onclick="downloadUnifiedJson()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs px-3.5 py-2 rounded-lg font-medium transition flex items-center gap-1.5">
+              <i class="fa-solid fa-download text-sky-400"></i> Vereinte Konfig herunterladen
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <!-- Slot 1: OPNsense XML -->
+          <div class="border border-slate-800 bg-slate-950/70 rounded-xl p-4 flex flex-col justify-between space-y-3">
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-xs font-semibold text-sky-300 flex items-center gap-1.5">
+                  <i class="fa-solid fa-shield text-sky-400"></i> 1. OPNsense XML
+                </span>
+                <span id="file-status-opnsense" class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">Bereit</span>
+              </div>
+              <p class="text-[11px] text-slate-400">Master-Quelle: Routing, VLAN-Subnetze, DHCP, NAT, DNS, Firewall-Regeln.</p>
+            </div>
+            <div>
+              <div id="drop-opnsense" onclick="document.getElementById('input-file-opnsense').click()" class="border-2 border-dashed border-slate-800 hover:border-sky-500 rounded-lg p-3 text-center cursor-pointer bg-slate-900/60 transition">
+                <i class="fa-solid fa-file-code text-slate-500 text-lg mb-1"></i>
+                <div id="label-file-opnsense" class="text-xs font-medium text-slate-300 truncate">config.xml auswählen</div>
+                <div class="text-[10px] text-slate-500">OPNsense Backup XML</div>
+              </div>
+              <input type="file" id="input-file-opnsense" onchange="uploadSourceFile(this, 'opnsense')" class="hidden" accept=".xml">
+            </div>
+          </div>
+
+          <!-- Slot 2: UCG-Max Export -->
+          <div class="border border-slate-800 bg-slate-950/70 rounded-xl p-4 flex flex-col justify-between space-y-3">
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
+                  <i class="fa-solid fa-server text-cyan-400"></i> 2. UCG-Max Export
+                </span>
+                <span id="file-status-ucg" class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">Optional</span>
+              </div>
+              <p class="text-[11px] text-slate-400">Vorhandenes Gateway: Erkennt vorhandene Netze, schützt UCG-VLANs.</p>
+            </div>
+            <div>
+              <div id="drop-ucg" onclick="document.getElementById('input-file-ucg').click()" class="border-2 border-dashed border-slate-800 hover:border-cyan-500 rounded-lg p-3 text-center cursor-pointer bg-slate-900/60 transition">
+                <i class="fa-solid fa-file-zipper text-slate-500 text-lg mb-1"></i>
+                <div id="label-file-ucg" class="text-xs font-medium text-slate-300 truncate">UCG Export (.unf / .json)</div>
+                <div class="text-[10px] text-slate-500">Backup oder JSON-Dump</div>
+              </div>
+              <input type="file" id="input-file-ucg" onchange="uploadSourceFile(this, 'ucg_max')" class="hidden" accept=".unf,.json,.zip">
+            </div>
+          </div>
+
+          <!-- Slot 3: UniFi Server Backup -->
+          <div class="border border-slate-800 bg-slate-950/70 rounded-xl p-4 flex flex-col justify-between space-y-3">
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
+                  <i class="fa-solid fa-wifi text-purple-400"></i> 3. UniFi Server Backup
+                </span>
+                <span id="file-status-uos" class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">Optional</span>
+              </div>
+              <p class="text-[11px] text-slate-400">Bisheriger Controller: Wi-Fi SSIDs, WPA-Keys, APs/Switche, Klarnamen.</p>
+            </div>
+            <div>
+              <div id="drop-uos" onclick="document.getElementById('input-file-uos').click()" class="border-2 border-dashed border-slate-800 hover:border-purple-500 rounded-lg p-3 text-center cursor-pointer bg-slate-900/60 transition">
+                <i class="fa-solid fa-file-zipper text-slate-500 text-lg mb-1"></i>
+                <div id="label-file-uos" class="text-xs font-medium text-slate-300 truncate">UniFi Backup (.unf / .json)</div>
+                <div class="text-[10px] text-slate-500">Autobackup oder Site-Export</div>
+              </div>
+              <input type="file" id="input-file-uos" onchange="uploadSourceFile(this, 'uos_server')" class="hidden" accept=".unf,.json,.zip">
+            </div>
+          </div>
+        </div>
+
+        <div id="unify-banner" class="hidden bg-emerald-950/40 border border-emerald-800/80 rounded-lg p-3 flex items-center justify-between text-xs text-emerald-300">
+          <span id="unify-banner-msg">3 Quellen bereit zur Konsolidierung.</span>
+          <button onclick="unifyAllSources()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Jetzt vereinen
+          </button>
+        </div>
+      </div>
+
+      <!-- OPTION B: LIVE-NETZWERK ABFRAGE -->
+      <div class="pt-2">
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <i class="fa-solid fa-network-wired text-slate-500"></i> Option B: Alternativ per Live-Netzwerk-Abfrage auslesen
+        </h3>
+      </div>
+
       <!-- Connection Cards: UCG-Max & UOS Server -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <!-- Card 1: UCG-Max -->
@@ -1972,6 +2073,89 @@
       } catch (err) {
         showToast('Fehler: ' + err.message, true);
       }
+    }
+
+    async function uploadSourceFile(input, sourceType) {
+      if (!input.files || input.files.length === 0) return;
+      const file = input.files[0];
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('source_type', sourceType);
+
+      showToast(`Lade ${file.name} hoch & analysiere...`);
+
+      const statusMap = {
+        'opnsense': 'file-status-opnsense',
+        'ucg_max': 'file-status-ucg',
+        'uos_server': 'file-status-uos'
+      };
+      const labelMap = {
+        'opnsense': 'label-file-opnsense',
+        'ucg_max': 'label-file-ucg',
+        'uos_server': 'label-file-uos'
+      };
+
+      try {
+        const res = await fetch('/api/sources/upload-export', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        if (data.success) {
+          const elStatus = document.getElementById(statusMap[sourceType]);
+          const elLabel = document.getElementById(labelMap[sourceType]);
+          if (elStatus) {
+            elStatus.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800';
+            elStatus.innerText = 'Geladen';
+          }
+          if (elLabel) {
+            elLabel.innerText = file.name;
+          }
+
+          if (data.reconciliation) renderReconciliation(data.reconciliation);
+          if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
+
+          // Check if we can show unify banner
+          const st = data.sources_status || {};
+          let loadedCount = (st.opnsense_loaded ? 1 : 0) + (st.ucg_loaded ? 1 : 0) + (st.uos_loaded ? 1 : 0);
+          if (loadedCount >= 2) {
+            const banner = document.getElementById('unify-banner');
+            const bannerMsg = document.getElementById('unify-banner-msg');
+            if (banner && bannerMsg) {
+              banner.classList.remove('hidden');
+              bannerMsg.innerText = `${loadedCount} Datenquellen geladen. Klicken Sie auf 'Jetzt vereinen', um die konsolidierte Konfiguration zu generieren.`;
+            }
+          }
+
+          showToast(`${file.name} erfolgreich analysiert & integriert!`);
+        } else {
+          showToast(data.error || 'Fehler beim Analysieren der Datei', true);
+        }
+      } catch (err) {
+        showToast('Upload-Fehler: ' + err.message, true);
+      }
+    }
+
+    async function unifyAllSources() {
+      showToast('Führe 3-Wege-Fusion der Konfigurationen durch...');
+      try {
+        const res = await fetch('/api/sources/unify-all', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          if (data.reconciliation) renderReconciliation(data.reconciliation);
+          if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
+          const s = data.summary || {};
+          showToast(`Erfolgreich vereint: ${s.total_networks} Netze, ${s.total_wlans} WLANs, ${s.total_fixed_ips} feste IPs, ${s.total_rules} Regeln!`);
+        } else {
+          showToast(data.error || 'Fehler beim Vereinen', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    function downloadUnifiedJson() {
+      window.location.href = '/api/sources/export-unified-json';
     }
 
     // Sanitization Trigger

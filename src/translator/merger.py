@@ -16,6 +16,7 @@ from src.models import (
     ReconciliationItem,
     UniFiWlan,
     UniFiFixedIp,
+    UniFiNetwork,
 )
 
 logger = logging.getLogger(__name__)
@@ -114,17 +115,29 @@ class MultiSourceMerger:
             for net in self.ucg_state.networks:
                 vlan = int(net.get("vlan", 1) or net.get("vlan_id", 1))
                 if vlan not in planned_vlans and net.get("name") not in ["Default", "default"]:
+                    cidr = net.get("ip_subnet", "") or net.get("gateway_ip", "")
                     items.append(
                         ReconciliationItem(
                             category="network",
                             key=f"VLAN {vlan} ({net.get('name')})",
                             opnsense_val=None,
-                            ucg_val=net.get("ip_subnet", "aktiv"),
+                            ucg_val=cidr or "aktiv",
                             status="preserve_ucg",
                             action="keep_untouched",
-                            explanation="Existiert nur auf UCG-Max und wird sicher beibehalten (kein Löschen).",
+                            explanation="Existiert nur auf UCG-Max und wird sicher in die einheitliche Konfiguration übernommen.",
                         )
                     )
+                    # Include into unified target config so export is complete
+                    self.target.networks.append(
+                        UniFiNetwork(
+                            name=net.get("name", f"UCG_VLAN_{vlan}"),
+                            vlan_id=vlan,
+                            gateway_cidr=cidr,
+                            purpose=net.get("purpose", "corporate"),
+                            dhcp_enabled=bool(net.get("dhcpd_enabled", True)),
+                        )
+                    )
+                    planned_vlans.add(vlan)
                     summary["networks_preserved"] += 1
 
         # ---------------------------------------------------------------------
@@ -188,6 +201,38 @@ class MultiSourceMerger:
                             status="aligned",
                             action="enrich_hostname",
                             explanation=f"Technischer Hostname '{old_name}' durch lesbaren Namen '{friendly_name}' aus dem UniFi Server angereichert.",
+                        )
+                    )
+                    summary["clients_enriched"] += 1
+
+        # Incorporate any additional fixed IPs from UOS / UCG not present in OPNsense
+        existing_target_macs = {f.mac.lower() for f in self.target.fixed_ips}
+        all_unifi_clients = (self.uos_state.clients if self.uos_state else []) + (self.ucg_state.clients if self.ucg_state else [])
+        for c in all_unifi_clients:
+            mac = c.get("mac", "").lower()
+            fixed_ip = c.get("fixed_ip") or c.get("ip")
+            if mac and fixed_ip and (c.get("use_fixedip", False) or "fixed_ip" in c):
+                if mac not in existing_target_macs:
+                    name = c.get("name") or c.get("hostname", f"Device-{mac[-5:]}")
+                    self.target.fixed_ips.append(
+                        UniFiFixedIp(
+                            mac=mac,
+                            name=name,
+                            fixed_ip=fixed_ip,
+                            network_name=c.get("network_id", "Corporate"),
+                        )
+                    )
+                    existing_target_macs.add(mac)
+                    items.append(
+                        ReconciliationItem(
+                            category="client",
+                            key=f"Client {fixed_ip} ({mac})",
+                            opnsense_val=None,
+                            ucg_val=fixed_ip if self.ucg_state else None,
+                            uos_val=f"{name} ({fixed_ip})" if self.uos_state else None,
+                            status="import_uos",
+                            action="import_fixed_ip",
+                            explanation=f"Feste IP-Reservierung für '{name}' aus UniFi-Export übernommen.",
                         )
                     )
                     summary["clients_enriched"] += 1

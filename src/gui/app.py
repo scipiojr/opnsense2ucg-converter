@@ -20,17 +20,21 @@ from src.translator.mapper import UniFiMapper
 from src.translator.merger import MultiSourceMerger
 from src.llm.engine import LLMTranslationEngine
 from src.unifi.client import UniFiGatewayClient
+from src.unifi.export_parser import UniFiExportParser
 
 
 # Global Session State
 class SessionState:
     raw_xml: str = ""
+    opnsense_filename: str = ""
     opnsense_cfg: Optional[OPNsenseConfig] = None
     vault: SanitizerVault = SanitizerVault()
     unifi_cfg: Optional[UniFiTargetConfig] = None
     llm_explanation: str = ""
     llm_recommendations: list = []
+    ucg_filename: str = ""
     ucg_state: Optional[UniFiSourceState] = None
+    uos_filename: str = ""
     uos_state: Optional[UniFiSourceState] = None
     reconciliation_report: Optional[ReconciliationReport] = None
 
@@ -722,6 +726,150 @@ async def reconcile_sources_api(request: Request) -> JSONResponse:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
+async def upload_export_file_api(request: Request) -> JSONResponse:
+    try:
+        content_type = request.headers.get("content-type", "")
+        file_bytes = b""
+        filename = ""
+        source_type = "generic"
+
+        if "multipart/form-data" in content_type:
+            form = await request.form()
+            file_obj = form.get("file")
+            source_type = str(form.get("source_type", "generic"))
+            if file_obj:
+                filename = getattr(file_obj, "filename", "export.bin")
+                file_bytes = await file_obj.read()
+        else:
+            body = await request.json()
+            source_type = str(body.get("source_type", "generic"))
+            filename = str(body.get("filename", "export.json"))
+            if "content" in body:
+                file_bytes = body["content"].encode("utf-8")
+            elif "base64" in body:
+                import base64
+                file_bytes = base64.b64decode(body["base64"])
+
+        if not file_bytes:
+            return JSONResponse({"success": False, "error": "Keine Dateidaten empfangen."}, status_code=400)
+
+        export_parser = UniFiExportParser()
+
+        if source_type == "opnsense" or filename.lower().endswith(".xml"):
+            xml_text = file_bytes.decode("utf-8", errors="replace")
+            state.raw_xml = xml_text
+            state.opnsense_filename = filename
+            parser = OPNsenseParser(xml_text)
+            state.opnsense_cfg = parser.parse()
+            state.vault = SanitizerVault(anonymize_macs=False)
+            mapper = UniFiMapper(state.opnsense_cfg)
+            state.unifi_cfg = mapper.map_all(enforce_inter_vlan_block=True)
+            source_summary = {
+                "source": "opnsense",
+                "filename": filename,
+                "interfaces_count": len(state.opnsense_cfg.interfaces),
+                "leases_count": len(state.opnsense_cfg.static_leases),
+                "rules_count": len(state.opnsense_cfg.filter_rules),
+            }
+        elif source_type == "ucg_max":
+            ucg_st = export_parser.parse_bytes(file_bytes, filename=filename, source_type="ucg_max")
+            state.ucg_state = ucg_st
+            state.ucg_filename = filename
+            source_summary = {
+                "source": "ucg_max",
+                "filename": filename,
+                "summary": ucg_st.raw_summary,
+            }
+        elif source_type == "uos_server":
+            uos_st = export_parser.parse_bytes(file_bytes, filename=filename, source_type="uos_server")
+            state.uos_state = uos_st
+            state.uos_filename = filename
+            source_summary = {
+                "source": "uos_server",
+                "filename": filename,
+                "summary": uos_st.raw_summary,
+            }
+        else:
+            return JSONResponse({"success": False, "error": f"Unbekannter Quelltyp: {source_type}"}, status_code=400)
+
+        # Automatically reconcile if OPNsense is loaded and either UCG or UOS export is present
+        if state.opnsense_cfg and state.unifi_cfg and (state.ucg_state or state.uos_state):
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state)
+            state.reconciliation_report = merger.reconcile()
+
+        unifi_dict = get_unifi_config_dict()
+        return JSONResponse({
+            "success": True,
+            "source_info": source_summary,
+            "sources_status": {
+                "opnsense_loaded": state.opnsense_cfg is not None,
+                "opnsense_file": state.opnsense_filename,
+                "ucg_loaded": state.ucg_state is not None,
+                "ucg_file": state.ucg_filename,
+                "ucg_summary": state.ucg_state.raw_summary if state.ucg_state else {},
+                "uos_loaded": state.uos_state is not None,
+                "uos_file": state.uos_filename,
+                "uos_summary": state.uos_state.raw_summary if state.uos_state else {},
+            },
+            "reconciliation": unifi_dict.get("reconciliation"),
+            "unifi_mapped": unifi_dict,
+        })
+    except Exception as e:
+        logger.exception("Error processing export file upload")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+async def unify_all_api(request: Request) -> JSONResponse:
+    try:
+        if not state.opnsense_cfg or not state.unifi_cfg:
+            return JSONResponse({
+                "success": False,
+                "error": "Bitte laden Sie zuerst die OPNsense XML-Konfiguration als Master-Quelle."
+            }, status_code=400)
+
+        # Fresh baseline from OPNsense
+        mapper = UniFiMapper(state.opnsense_cfg)
+        state.unifi_cfg = mapper.map_all(enforce_inter_vlan_block=True)
+
+        # Merge with UCG-Max export and UOS Server export
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state)
+        report = merger.reconcile()
+        state.reconciliation_report = report
+
+        unifi_dict = get_unifi_config_dict()
+        return JSONResponse({
+            "success": True,
+            "message": "Alle drei Konfigurationsquellen wurden erfolgreich zu einer einheitlichen UniFi-Konfiguration vereint!",
+            "reconciliation": unifi_dict.get("reconciliation"),
+            "unifi_mapped": unifi_dict,
+            "summary": {
+                "total_networks": len(unifi_dict.get("networks", [])),
+                "total_wlans": len(unifi_dict.get("wlans", [])),
+                "total_fixed_ips": len(unifi_dict.get("fixed_ips", [])),
+                "total_rules": len(unifi_dict.get("firewall_rules", [])),
+                "total_groups": len(unifi_dict.get("firewall_groups", [])),
+                "sources_merged": {
+                    "opnsense": state.opnsense_filename or "Geladen",
+                    "ucg_max": state.ucg_filename or ("Live-Abfrage" if state.ucg_state else "Nicht vorhanden"),
+                    "uos_server": state.uos_filename or ("Live-Abfrage" if state.uos_state else "Nicht vorhanden"),
+                }
+            }
+        })
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+async def export_unified_json_api(request: Request) -> JSONResponse:
+    if not state.unifi_cfg:
+        return JSONResponse({"success": False, "error": "Keine vereinte Konfiguration vorhanden. Bitte zuerst Dateien laden."}, status_code=400)
+
+    cfg_dict = get_unifi_config_dict()
+    return JSONResponse(
+        cfg_dict,
+        headers={"Content-Disposition": "attachment; filename=unifi_unified_config.json"}
+    )
+
+
 routes = [
     Route("/", endpoint=index_view, methods=["GET"]),
     Route("/api/load-sample", endpoint=load_sample_api, methods=["POST"]),
@@ -742,7 +890,11 @@ routes = [
     Route("/api/sources/fetch-ucg", endpoint=fetch_ucg_live_api, methods=["POST"]),
     Route("/api/sources/fetch-uos", endpoint=fetch_uos_live_api, methods=["POST"]),
     Route("/api/sources/reconcile", endpoint=reconcile_sources_api, methods=["POST"]),
+    Route("/api/sources/upload-export", endpoint=upload_export_file_api, methods=["POST"]),
+    Route("/api/sources/unify-all", endpoint=unify_all_api, methods=["POST"]),
+    Route("/api/sources/export-unified-json", endpoint=export_unified_json_api, methods=["GET"]),
 ]
 
 app = Starlette(debug=True, routes=routes)
+
 

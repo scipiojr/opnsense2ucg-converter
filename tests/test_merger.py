@@ -139,8 +139,112 @@ def test_three_way_reconciliation():
     assert len(unifi_dict["reconciliation"]["items"]) > 5
     assert len(unifi_dict["wlans"]) == 2
 
+    # Check preserved UCG network was added to target
+    ucg_lab = next((n for n in state.unifi_cfg.networks if n.vlan_id == 88), None)
+    assert ucg_lab is not None
+    assert ucg_lab.gateway_cidr == "172.16.88.1/24"
+
     print("SUCCESS: 3-Way Multi-Source Reconciliation & Merger tests passed cleanly!")
+
+
+def test_export_files_parsing_and_unification():
+    from src.unifi.export_parser import UniFiExportParser, UNIFI_AES_KEY, UNIFI_AES_IV
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    import zipfile
+    import io
+
+    # 1. Test JSON Export parsing
+    ucg_json = {
+        "networks": [
+            {"name": "UCG_VLAN25", "vlan": 25, "ip_subnet": "192.168.25.1/24"},
+            {"name": "Default", "vlan": 1, "ip_subnet": "192.168.1.1/24"}
+        ],
+        "clients": [
+            {"mac": "00:aa:bb:cc:dd:ee", "name": "UCG-Workstation", "use_fixedip": True, "fixed_ip": "192.168.25.50"}
+        ]
+    }
+    parser = UniFiExportParser()
+    ucg_state = parser.parse_json_dict(ucg_json, source_type="ucg_max")
+    assert len(ucg_state.networks) == 2
+    assert len(ucg_state.clients) == 1
+
+    # 2. Test encrypted .unf backup parsing
+    uos_data = {
+        "wlans": [
+            {"name": "Company-Secret-WiFi", "security": "wpapsk", "x_passphrase": "TopSecretKey99", "vlan": 25}
+        ],
+        "devices": [
+            {"name": "U6-Enterprise-Hall", "mac": "11:22:33:44:55:66", "model": "u6-ent", "type": "uap"}
+        ],
+        "clients": [
+            {"mac": "00:15:5d:12:34:56", "name": "TrueNAS Storage Cluster (Server)"}
+        ]
+    }
+    # Create zip in memory
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w") as z:
+        z.writestr("settings.json", json.dumps(uos_data))
+    zip_bytes = zip_buf.getvalue()
+
+    # Encrypt with UniFi AES key
+    pad_len = 16 - (len(zip_bytes) % 16)
+    padded_zip = zip_bytes + (b"\x00" * pad_len)
+    cipher = Cipher(algorithms.AES(UNIFI_AES_KEY), modes.CBC(UNIFI_AES_IV))
+    encryptor = cipher.encryptor()
+    encrypted_unf = encryptor.update(padded_zip) + encryptor.finalize()
+
+    # Parse .unf bytes
+    uos_state = parser.parse_bytes(encrypted_unf, filename="backup_2026.unf", source_type="uos_server")
+    assert len(uos_state.wlans) == 1
+    assert uos_state.wlans[0].name == "Company-Secret-WiFi"
+    assert len(uos_state.devices) == 1
+    assert len(uos_state.clients) == 1
+
+    # 3. Unify OPNsense + UCG export + UOS export
+    sample_path = os.path.join(os.path.dirname(__file__), "..", "examples", "sample_opnsense_26_7_5.xml")
+    with open(sample_path, "r", encoding="utf-8") as f:
+        xml_data = f.read()
+
+    state.ucg_state = ucg_state
+    state.uos_state = uos_state
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    res = loop.run_until_complete(process_xml(xml_data))
+    assert res.status_code == 200
+
+    report = state.reconciliation_report
+    assert report is not None
+
+    # Check that UCG VLAN 25 was preserved & added to unified config
+    vlan25 = next((n for n in state.unifi_cfg.networks if n.vlan_id == 25), None)
+    assert vlan25 is not None
+    assert vlan25.name == "UCG_VLAN25"
+
+    # Check WLAN was imported
+    wlan = next((w for w in state.unifi_cfg.wlans if w.name == "Company-Secret-WiFi"), None)
+    assert wlan is not None
+
+    # Check client name enrichment
+    nas = next((f for f in state.unifi_cfg.fixed_ips if f.mac.lower() == "00:15:5d:12:34:56"), None)
+    assert nas is not None
+    assert nas.name == "TrueNAS Storage Cluster (Server)"
+
+    # Check extra client fixed IP added from UCG export
+    ucg_client = next((f for f in state.unifi_cfg.fixed_ips if f.mac.lower() == "00:aa:bb:cc:dd:ee"), None)
+    assert ucg_client is not None
+    assert ucg_client.fixed_ip == "192.168.25.50"
+
+    # Test full unified config dictionary
+    unified_dict = get_unifi_config_dict()
+    assert len(unified_dict["networks"]) == 6  # 5 OPNsense + 1 UCG preserved
+    assert len(unified_dict["wlans"]) == 1
+    assert len(unified_dict["fixed_ips"]) == 9  # 8 OPNsense + 1 UCG extra
+
+    print("SUCCESS: Export files parsing (.json, encrypted .unf) and 3-way unification passed cleanly!")
 
 
 if __name__ == "__main__":
     test_three_way_reconciliation()
+    test_export_files_parsing_and_unification()
+
