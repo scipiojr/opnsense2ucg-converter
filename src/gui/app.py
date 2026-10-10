@@ -23,11 +23,13 @@ from src.models import (
     ReconciliationReport,
     UniFiNetwork,
     UniFiFixedIp,
+    UniFiWlan,
 )
 from src.opnsense.parser import OPNsenseParser
 from src.sanitizer.masker import SanitizerVault
 from src.translator.mapper import UniFiMapper
 from src.translator.merger import MultiSourceMerger
+from src.translator.remapper import VlanRemapper, remap_ip_address
 from src.llm.engine import LLMTranslationEngine
 from src.unifi.client import UniFiGatewayClient
 from src.unifi.export_parser import UniFiExportParser
@@ -47,6 +49,7 @@ class SessionState:
     uos_filename: str = ""
     uos_state: Optional[UniFiSourceState] = None
     reconciliation_report: Optional[ReconciliationReport] = None
+    vlan_remaps: list = []
 
     def reset(self):
         self.raw_xml = ""
@@ -61,6 +64,7 @@ class SessionState:
         self.uos_filename = ""
         self.uos_state = None
         self.reconciliation_report = None
+        self.vlan_remaps = []
 
 
 state = SessionState()
@@ -111,7 +115,7 @@ async def process_xml(xml_content: str) -> JSONResponse:
     state.unifi_cfg = mapper.map_all(enforce_inter_vlan_block=True)
 
     if state.ucg_state or state.uos_state:
-        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state)
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
         state.reconciliation_report = merger.reconcile()
 
     return JSONResponse({
@@ -182,6 +186,41 @@ async def process_xml(xml_content: str) -> JSONResponse:
 
 
 def get_unifi_config_dict() -> Dict[str, Any]:
+    networks_from_sources = []
+    if state.ucg_state and state.ucg_state.networks:
+        for n in state.ucg_state.networks:
+            if isinstance(n, dict):
+                dhcp_en = n.get("dhcpd_enabled", n.get("dhcp_enabled", True))
+                d_start = n.get("dhcpd_start", n.get("dhcp_start", "")) or ""
+                d_stop = n.get("dhcpd_stop", n.get("dhcp_stop", "")) or ""
+                d_range = f"{d_start} - {d_stop}" if dhcp_en and (d_start or d_stop) else ("DHCP Aktiv" if dhcp_en else "Manuell / Statisch")
+                networks_from_sources.append({
+                    "name": n.get("name", "UCG-Net"),
+                    "vlan_id": n.get("vlan", n.get("vlan_id", 1)),
+                    "gateway_cidr": n.get("ip_subnet", n.get("gateway_cidr", "")),
+                    "dhcp_enabled": dhcp_en,
+                    "dhcp_start": d_start,
+                    "dhcp_stop": d_stop,
+                    "dhcp_range": d_range,
+                    "purpose": n.get("purpose", "corporate"),
+                    "domain_name": n.get("domain_name", "local"),
+                })
+            else:
+                d_start = getattr(n, "dhcp_start", "") or ""
+                d_stop = getattr(n, "dhcp_stop", "") or ""
+                d_range = f"{d_start} - {d_stop}" if n.dhcp_enabled and (d_start or d_stop) else ("DHCP Aktiv" if n.dhcp_enabled else "Manuell / Statisch")
+                networks_from_sources.append({
+                    "name": n.name,
+                    "vlan_id": n.vlan_id,
+                    "gateway_cidr": n.gateway_cidr,
+                    "dhcp_enabled": n.dhcp_enabled,
+                    "dhcp_start": d_start,
+                    "dhcp_stop": d_stop,
+                    "dhcp_range": d_range,
+                    "purpose": getattr(n, "purpose", "corporate") or "corporate",
+                    "domain_name": getattr(n, "domain_name", "local") or "local",
+                })
+
     if not state.unifi_cfg:
         rep = state.reconciliation_report
         wlans_from_sources = []
@@ -207,41 +246,6 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 }
                 for w in state.ucg_state.wlans
             ]
-
-        networks_from_sources = []
-        if state.ucg_state and state.ucg_state.networks:
-            for n in state.ucg_state.networks:
-                if isinstance(n, dict):
-                    dhcp_en = n.get("dhcpd_enabled", n.get("dhcp_enabled", True))
-                    d_start = n.get("dhcpd_start", n.get("dhcp_start", "")) or ""
-                    d_stop = n.get("dhcpd_stop", n.get("dhcp_stop", "")) or ""
-                    d_range = f"{d_start} - {d_stop}" if dhcp_en and (d_start or d_stop) else ("DHCP Aktiv" if dhcp_en else "Manuell / Statisch")
-                    networks_from_sources.append({
-                        "name": n.get("name", "UCG-Net"),
-                        "vlan_id": n.get("vlan", n.get("vlan_id", 1)),
-                        "gateway_cidr": n.get("ip_subnet", n.get("gateway_cidr", "")),
-                        "dhcp_enabled": dhcp_en,
-                        "dhcp_start": d_start,
-                        "dhcp_stop": d_stop,
-                        "dhcp_range": d_range,
-                        "purpose": n.get("purpose", "corporate"),
-                        "domain_name": n.get("domain_name", "local"),
-                    })
-                else:
-                    d_start = getattr(n, "dhcp_start", "") or ""
-                    d_stop = getattr(n, "dhcp_stop", "") or ""
-                    d_range = f"{d_start} - {d_stop}" if n.dhcp_enabled and (d_start or d_stop) else ("DHCP Aktiv" if n.dhcp_enabled else "Manuell / Statisch")
-                    networks_from_sources.append({
-                        "name": n.name,
-                        "vlan_id": n.vlan_id,
-                        "gateway_cidr": n.gateway_cidr,
-                        "dhcp_enabled": n.dhcp_enabled,
-                        "dhcp_start": d_start,
-                        "dhcp_stop": d_stop,
-                        "dhcp_range": d_range,
-                        "purpose": getattr(n, "purpose", "corporate") or "corporate",
-                        "domain_name": getattr(n, "domain_name", "local") or "local",
-                    })
 
         fixed_from_sources = []
         src_clients = (state.ucg_state.clients if state.ucg_state else []) + (state.uos_state.clients if state.uos_state else [])
@@ -298,6 +302,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 }
                 if rep else None
             ),
+            "ucg_networks": networks_from_sources,
         }
     return {
         "networks": [
@@ -439,6 +444,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
             }
             if (rep := getattr(state.unifi_cfg, "reconciliation_report", None) or state.reconciliation_report) else None
         ),
+        "ucg_networks": networks_from_sources,
     }
 
 
@@ -791,7 +797,7 @@ async def fetch_ucg_live_api(request: Request) -> JSONResponse:
         state.ucg_state = live_state
 
         if state.opnsense_cfg and state.unifi_cfg:
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state)
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
             state.reconciliation_report = merger.reconcile()
 
         unifi_dict = get_unifi_config_dict()
@@ -832,7 +838,7 @@ async def fetch_uos_live_api(request: Request) -> JSONResponse:
         state.uos_state = live_state
 
         if state.opnsense_cfg and state.unifi_cfg:
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state)
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
             state.reconciliation_report = merger.reconcile()
 
         unifi_dict = get_unifi_config_dict()
@@ -858,7 +864,7 @@ async def reconcile_sources_api(request: Request) -> JSONResponse:
         if not state.opnsense_cfg or not state.unifi_cfg:
             return JSONResponse({"success": False, "error": "Bitte laden Sie zuerst die OPNsense XML-Konfiguration."}, status_code=400)
 
-        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state)
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
         report = merger.reconcile()
         state.reconciliation_report = report
 
@@ -945,7 +951,7 @@ async def upload_export_file_api(request: Request) -> JSONResponse:
 
         # Automatically reconcile if OPNsense is loaded and either UCG or UOS export is present
         if state.opnsense_cfg and state.unifi_cfg and (state.ucg_state or state.uos_state):
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state)
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
             state.reconciliation_report = merger.reconcile()
 
         unifi_dict = get_unifi_config_dict()
@@ -983,7 +989,7 @@ async def unify_all_api(request: Request) -> JSONResponse:
         state.unifi_cfg = mapper.map_all(enforce_inter_vlan_block=True)
 
         # Merge with UCG-Max export and UOS Server export
-        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state)
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
         report = merger.reconcile()
         state.reconciliation_report = report
 
@@ -1027,11 +1033,19 @@ async def update_network_api(request: Request) -> JSONResponse:
         body = await request.json()
         idx = int(body.get("index", -1))
         net_data = body.get("network", {})
+        cascade = bool(body.get("cascade", True))
+        remap_clients = bool(body.get("remap_clients", True))
+        remap_wlans = bool(body.get("remap_wlans", True))
+        remap_rules = bool(body.get("remap_rules", True))
+
         if not state.unifi_cfg or idx < 0 or idx >= len(state.unifi_cfg.networks):
             return JSONResponse({"success": False, "error": "Ungültiger Netzwerk-Index."}, status_code=200)
 
         target = state.unifi_cfg.networks[idx]
         old_name = target.name
+        old_vlan = target.vlan_id
+        old_cidr = target.gateway_cidr
+
         new_name = str(net_data.get("name", target.name)).strip()
         vlan_id = int(net_data.get("vlan_id", target.vlan_id))
         gateway_cidr = str(net_data.get("gateway_cidr", target.gateway_cidr)).strip()
@@ -1048,28 +1062,336 @@ async def update_network_api(request: Request) -> JSONResponse:
         if "/" not in gateway_cidr:
             return JSONResponse({"success": False, "error": "Gateway muss im CIDR-Format sein (z. B. 192.168.10.1/24)."}, status_code=200)
 
-        target.name = new_name
-        target.vlan_id = vlan_id
-        target.gateway_cidr = gateway_cidr
-        target.dhcp_enabled = dhcp_enabled
-        target.dhcp_start = dhcp_start
-        target.dhcp_stop = dhcp_stop
-        target.purpose = purpose
-        target.domain_name = domain_name
+        if cascade and (old_vlan != vlan_id or old_cidr != gateway_cidr or old_name != new_name):
+            remap_res = VlanRemapper.remap(
+                state.unifi_cfg,
+                source_vlan=old_vlan,
+                target_vlan=vlan_id,
+                source_cidr=old_cidr,
+                target_cidr=gateway_cidr,
+                target_name=new_name,
+                remap_clients=remap_clients,
+                remap_wlans=remap_wlans,
+                remap_rules=remap_rules,
+            )
+            target = next((n for n in state.unifi_cfg.networks if n.vlan_id == vlan_id), target)
+            target.dhcp_enabled = dhcp_enabled
+            if dhcp_start:
+                target.dhcp_start = dhcp_start
+            if dhcp_stop:
+                target.dhcp_stop = dhcp_stop
+            target.purpose = purpose
+            target.domain_name = domain_name
 
-        # If network name changed, update associated fixed IPs
-        if old_name != new_name:
-            for f in state.unifi_cfg.fixed_ips:
-                if f.network_name == old_name:
-                    f.network_name = new_name
+            if old_vlan != vlan_id:
+                state.vlan_remaps.append({
+                    "source_vlan": old_vlan,
+                    "target_vlan": vlan_id,
+                    "source_cidr": old_cidr,
+                    "target_cidr": gateway_cidr,
+                    "target_name": new_name,
+                })
+
+            if state.opnsense_cfg and (state.ucg_state or state.uos_state):
+                merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
+                state.reconciliation_report = merger.reconcile()
+
+            msg = f"Netzwerk '{new_name}' (VLAN {vlan_id}) aktualisiert (Kaskadiert: {remap_res['clients_remapped']} Clients, {remap_res['wlans_remapped']} WLANs)."
+        else:
+            target.name = new_name
+            target.vlan_id = vlan_id
+            target.gateway_cidr = gateway_cidr
+            target.dhcp_enabled = dhcp_enabled
+            target.dhcp_start = dhcp_start
+            target.dhcp_stop = dhcp_stop
+            target.purpose = purpose
+            target.domain_name = domain_name
+
+            if old_name != new_name:
+                for f in state.unifi_cfg.fixed_ips:
+                    if f.network_name == old_name:
+                        f.network_name = new_name
+            msg = f"Netzwerk '{new_name}' (VLAN {vlan_id}) erfolgreich aktualisiert."
 
         return JSONResponse({
             "success": True,
-            "message": f"Netzwerk '{new_name}' (VLAN {vlan_id}) erfolgreich aktualisiert.",
+            "message": msg,
+            "reconciliation": get_unifi_config_dict().get("reconciliation"),
             "unifi_mapped": get_unifi_config_dict()
         })
     except Exception as e:
         logger.exception("Error updating network")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def remap_network_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "Keine Konfiguration geladen."}, status_code=200)
+
+        body = await request.json()
+        source_vlan = int(body.get("source_vlan", body.get("source_vlan_id", 1)))
+        target_vlan = int(body.get("target_vlan", body.get("new_vlan_id", source_vlan)))
+        source_cidr = body.get("source_cidr")
+        target_cidr = body.get("target_cidr", body.get("new_gateway_cidr"))
+        target_name = body.get("target_name", body.get("new_name"))
+        merge_target_vlan_id = body.get("merge_target_vlan_id")
+        if merge_target_vlan_id is not None and str(merge_target_vlan_id).strip() != "":
+            target_vlan = int(merge_target_vlan_id)
+        remap_clients = bool(body.get("remap_clients", True))
+        remap_wlans = bool(body.get("remap_wlans", True))
+        remap_rules = bool(body.get("remap_rules", True))
+
+        remap_result = VlanRemapper.remap(
+            state.unifi_cfg,
+            source_vlan=source_vlan,
+            target_vlan=target_vlan,
+            source_cidr=source_cidr,
+            target_cidr=target_cidr,
+            target_name=target_name,
+            remap_clients=remap_clients,
+            remap_wlans=remap_wlans,
+            remap_rules=remap_rules,
+        )
+
+        if not remap_result["success"]:
+            return JSONResponse({"success": False, "error": remap_result.get("error", "Remapping fehlgeschlagen.")}, status_code=200)
+
+        remap_entry = {
+            "source_vlan": source_vlan,
+            "target_vlan": target_vlan,
+            "source_cidr": source_cidr,
+            "target_cidr": target_cidr,
+            "target_name": target_name,
+        }
+        existing_rule_idx = next((i for i, r in enumerate(state.vlan_remaps) if r.get("source_vlan") == source_vlan), None)
+        if existing_rule_idx is not None:
+            state.vlan_remaps[existing_rule_idx] = remap_entry
+        else:
+            state.vlan_remaps.append(remap_entry)
+
+        if state.opnsense_cfg and (state.ucg_state or state.uos_state):
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
+            state.reconciliation_report = merger.reconcile()
+
+        unifi_dict = get_unifi_config_dict()
+        msg = f"VLAN {source_vlan} erfolgreich auf VLAN {target_vlan} migriert: {remap_result['clients_remapped']} Client-IPs, {remap_result['wlans_remapped']} WLANs und {remap_result['rules_remapped']} Firewall-Regeln angepasst."
+        return JSONResponse({
+            "success": True,
+            "message": msg,
+            "remap_result": remap_result,
+            "reconciliation": unifi_dict.get("reconciliation"),
+            "unifi_mapped": unifi_dict,
+        })
+    except Exception as e:
+        logger.exception("Error in remap_network_api")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def remap_preview_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "Keine Konfiguration geladen."}, status_code=200)
+
+        body = await request.json()
+        source_vlan = int(body.get("source_vlan", body.get("source_vlan_id", 1)))
+        target_vlan = int(body.get("target_vlan", body.get("new_vlan_id", source_vlan)))
+        source_cidr = body.get("source_cidr", "")
+        target_cidr = body.get("target_cidr", body.get("new_gateway_cidr", ""))
+
+        source_net = next((n for n in state.unifi_cfg.networks if n.vlan_id == source_vlan), None)
+        if not source_net and source_cidr:
+            clean_sc = source_cidr.split("/")[0]
+            source_net = next((n for n in state.unifi_cfg.networks if clean_sc in n.gateway_cidr), None)
+
+        if not source_net:
+            return JSONResponse({"success": False, "error": f"VLAN {source_vlan} nicht gefunden."}, status_code=200)
+
+        actual_src_cidr = source_cidr or source_net.gateway_cidr
+        actual_tgt_cidr = target_cidr or actual_src_cidr
+
+        affected_clients = []
+        for f in state.unifi_cfg.fixed_ips:
+            if actual_src_cidr != actual_tgt_cidr:
+                new_ip = remap_ip_address(f.fixed_ip, actual_src_cidr, actual_tgt_cidr)
+                if new_ip != f.fixed_ip:
+                    affected_clients.append({
+                        "name": f.name,
+                        "mac": f.mac,
+                        "old_ip": f.fixed_ip,
+                        "new_ip": new_ip,
+                    })
+
+        affected_wlans = []
+        for w in getattr(state.unifi_cfg, "wlans", []):
+            if w.vlan_id == source_vlan:
+                affected_wlans.append({
+                    "name": w.name,
+                    "old_vlan": source_vlan,
+                    "new_vlan": target_vlan,
+                })
+
+        affected_rules = []
+        if actual_src_cidr != actual_tgt_cidr:
+            for r in getattr(state.unifi_cfg, "firewall_rules", []):
+                old_src = r.src_address or ""
+                old_dst = r.dst_address or ""
+                new_src = remap_ip_address(old_src, actual_src_cidr, actual_tgt_cidr) if old_src else ""
+                new_dst = remap_ip_address(old_dst, actual_src_cidr, actual_tgt_cidr) if old_dst else ""
+                if (new_src and new_src != old_src) or (new_dst and new_dst != old_dst):
+                    affected_rules.append({
+                        "name": r.name,
+                        "old_src": old_src,
+                        "new_src": new_src,
+                    })
+
+        summary_text = f"Migration von {source_net.name} (VLAN {source_vlan}, {actual_src_cidr}) ➔ VLAN {target_vlan} ({actual_tgt_cidr})"
+        return JSONResponse({
+            "success": True,
+            "preview": {
+                "source_vlan": source_vlan,
+                "target_vlan": target_vlan,
+                "source_network_name": source_net.name,
+                "source_cidr": actual_src_cidr,
+                "target_cidr": actual_tgt_cidr,
+                "summary": summary_text,
+                "clients_count": len(affected_clients),
+                "wlans_count": len(affected_wlans),
+                "rules_count": len(affected_rules),
+                "client_diffs": affected_clients,
+                "wlan_diffs": affected_wlans,
+                "affected_clients": affected_clients,
+                "affected_wlans": affected_wlans,
+                "affected_rules_count": len(affected_rules),
+            }
+        })
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def update_wlan_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "Keine Konfiguration geladen."}, status_code=200)
+
+        body = await request.json()
+        idx = int(body.get("index", -1))
+        wlan_data = body.get("wlan", {})
+
+        wlans = getattr(state.unifi_cfg, "wlans", [])
+        if idx < 0 or idx >= len(wlans):
+            return JSONResponse({"success": False, "error": "Ungültiger WLAN-Index."}, status_code=200)
+
+        target_wlan = wlans[idx]
+        name = str(wlan_data.get("name", target_wlan.name)).strip()
+        vlan_val = wlan_data.get("vlan_id")
+        if vlan_val is not None and str(vlan_val).strip() != "" and str(vlan_val).lower() != "null":
+            vlan_id = int(vlan_val)
+        else:
+            vlan_id = None
+
+        security = str(wlan_data.get("security", target_wlan.security)).strip()
+        x_passphrase = str(wlan_data.get("x_passphrase", getattr(target_wlan, "x_passphrase", ""))).strip()
+        is_guest = bool(wlan_data.get("is_guest", target_wlan.is_guest))
+        enabled = bool(wlan_data.get("enabled", target_wlan.enabled))
+
+        if not name:
+            return JSONResponse({"success": False, "error": "WLAN-Name darf nicht leer sein."}, status_code=200)
+
+        target_wlan.name = name
+        target_wlan.vlan_id = vlan_id
+        target_wlan.security = security
+        target_wlan.x_passphrase = x_passphrase
+        target_wlan.is_guest = is_guest
+        target_wlan.enabled = enabled
+
+        if state.uos_state and state.uos_state.wlans:
+            for uw in state.uos_state.wlans:
+                if uw.name == name or uw.name == target_wlan.name:
+                    uw.vlan_id = vlan_id
+                    uw.security = security
+                    uw.x_passphrase = x_passphrase
+                    uw.is_guest = is_guest
+
+        unifi_dict = get_unifi_config_dict()
+        return JSONResponse({
+            "success": True,
+            "message": f"WLAN '{name}' (VLAN {vlan_id if vlan_id else 'Untagged'}) erfolgreich aktualisiert.",
+            "wlans": unifi_dict.get("wlans", []),
+            "unifi_mapped": unifi_dict,
+        })
+    except Exception as e:
+        logger.exception("Error in update_wlan_api")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def add_wlan_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "Keine Konfiguration geladen."}, status_code=200)
+
+        body = await request.json()
+        wlan_data = body.get("wlan", {})
+        name = str(wlan_data.get("name", "")).strip()
+        vlan_val = wlan_data.get("vlan_id")
+        if vlan_val is not None and str(vlan_val).strip() != "" and str(vlan_val).lower() != "null":
+            vlan_id = int(vlan_val)
+        else:
+            vlan_id = None
+
+        security = str(wlan_data.get("security", "wpapsk")).strip()
+        x_passphrase = str(wlan_data.get("x_passphrase", "")).strip()
+        is_guest = bool(wlan_data.get("is_guest", False))
+        enabled = bool(wlan_data.get("enabled", True))
+
+        if not name:
+            return JSONResponse({"success": False, "error": "WLAN-Name darf nicht leer sein."}, status_code=200)
+
+        new_wlan = UniFiWlan(
+            name=name,
+            vlan_id=vlan_id,
+            security=security,
+            x_passphrase=x_passphrase,
+            is_guest=is_guest,
+            enabled=enabled,
+        )
+        if not hasattr(state.unifi_cfg, "wlans"):
+            state.unifi_cfg.wlans = []
+        state.unifi_cfg.wlans.append(new_wlan)
+
+        unifi_dict = get_unifi_config_dict()
+        return JSONResponse({
+            "success": True,
+            "message": f"Neues WLAN '{name}' angelegt.",
+            "wlans": unifi_dict.get("wlans", []),
+            "unifi_mapped": unifi_dict,
+        })
+    except Exception as e:
+        logger.exception("Error in add_wlan_api")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def delete_wlan_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "Keine Konfiguration geladen."}, status_code=200)
+
+        body = await request.json()
+        idx = int(body.get("index", -1))
+        wlans = getattr(state.unifi_cfg, "wlans", [])
+        if idx < 0 or idx >= len(wlans):
+            return JSONResponse({"success": False, "error": "Ungültiger WLAN-Index."}, status_code=200)
+
+        removed = wlans.pop(idx)
+        unifi_dict = get_unifi_config_dict()
+        return JSONResponse({
+            "success": True,
+            "message": f"WLAN '{removed.name}' gelöscht.",
+            "wlans": unifi_dict.get("wlans", []),
+            "unifi_mapped": unifi_dict,
+        })
+    except Exception as e:
+        logger.exception("Error in delete_wlan_api")
         return JSONResponse({"success": False, "error": str(e)}, status_code=200)
 
 
@@ -1239,6 +1561,11 @@ routes = [
     Route("/api/networks/update", endpoint=update_network_api, methods=["POST"]),
     Route("/api/networks/add", endpoint=add_network_api, methods=["POST"]),
     Route("/api/networks/delete", endpoint=delete_network_api, methods=["POST"]),
+    Route("/api/networks/remap", endpoint=remap_network_api, methods=["POST"]),
+    Route("/api/networks/remap-preview", endpoint=remap_preview_api, methods=["POST"]),
+    Route("/api/wlans/update", endpoint=update_wlan_api, methods=["POST"]),
+    Route("/api/wlans/add", endpoint=add_wlan_api, methods=["POST"]),
+    Route("/api/wlans/delete", endpoint=delete_wlan_api, methods=["POST"]),
     Route("/api/fixed-ips/update", endpoint=update_fixed_ip_api, methods=["POST"]),
     Route("/api/fixed-ips/add", endpoint=add_fixed_ip_api, methods=["POST"]),
     Route("/api/fixed-ips/delete", endpoint=delete_fixed_ip_api, methods=["POST"]),

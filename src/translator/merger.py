@@ -29,11 +29,13 @@ class MultiSourceMerger:
         unifi_target: UniFiTargetConfig,
         ucg_state: Optional[UniFiSourceState] = None,
         uos_state: Optional[UniFiSourceState] = None,
+        vlan_remaps: Optional[List[Dict[str, Any]]] = None,
     ):
         self.opn_cfg = opnsense_cfg
         self.target = unifi_target
         self.ucg_state = ucg_state
         self.uos_state = uos_state
+        self.vlan_remaps = vlan_remaps or []
 
     def reconcile(self) -> ReconciliationReport:
         items: List[ReconciliationItem] = []
@@ -60,13 +62,40 @@ class MultiSourceMerger:
                 existing_ucg_nets_by_vlan[int(vlan)] = net
                 existing_ucg_nets_by_name[name.lower()] = net
 
+        remap_by_source_vlan = {int(r["source_vlan"]): r for r in self.vlan_remaps if "source_vlan" in r}
+        covered_ucg_vlans = set()
+
         for target_net in self.target.networks:
             vlan = target_net.vlan_id
             target_cidr = target_net.gateway_cidr.split("/")[0] if "/" in target_net.gateway_cidr else target_net.gateway_cidr
 
-            match = existing_ucg_nets_by_vlan.get(vlan) or existing_ucg_nets_by_name.get(target_net.name.lower())
+            remap_rule = remap_by_source_vlan.get(vlan)
+            mapped_target_vlan = int(remap_rule.get("target_vlan", vlan)) if remap_rule else vlan
 
-            if match:
+            match = (
+                existing_ucg_nets_by_vlan.get(mapped_target_vlan)
+                or existing_ucg_nets_by_vlan.get(vlan)
+                or existing_ucg_nets_by_name.get(target_net.name.lower())
+            )
+
+            if remap_rule and match:
+                ucg_ip = match.get("ip_subnet", "") or match.get("gateway_ip", "")
+                items.append(
+                    ReconciliationItem(
+                        category="network",
+                        key=f"VLAN {vlan} ➔ VLAN {mapped_target_vlan} ({target_net.name})",
+                        opnsense_val=target_net.gateway_cidr,
+                        ucg_val=ucg_ip or f"VLAN {mapped_target_vlan}",
+                        status="aligned",
+                        action="remapped_and_merged",
+                        explanation=f"Netzwerk manuell von VLAN {vlan} auf UCG-Netzwerk VLAN {mapped_target_vlan} ({match.get('name', 'UCG-Net')}) gemappt und zusammengeführt.",
+                    )
+                )
+                summary["networks_aligned"] += 1
+                covered_ucg_vlans.add(mapped_target_vlan)
+                covered_ucg_vlans.add(vlan)
+            elif match:
+                covered_ucg_vlans.add(int(match.get("vlan", vlan)))
                 ucg_ip = match.get("ip_subnet", "") or match.get("gateway_ip", "")
                 # Compare subnets
                 if not ucg_ip or ucg_ip.startswith(target_cidr[:8]):  # Subnet prefix match
@@ -111,7 +140,7 @@ class MultiSourceMerger:
 
         # Check networks present on UCG but not in OPNsense
         if self.ucg_state and self.ucg_state.networks:
-            planned_vlans = {n.vlan_id for n in self.target.networks}
+            planned_vlans = {n.vlan_id for n in self.target.networks} | covered_ucg_vlans
             for net in self.ucg_state.networks:
                 vlan = int(net.get("vlan", 1) or net.get("vlan_id", 1))
                 if vlan not in planned_vlans and net.get("name") not in ["Default", "default"]:

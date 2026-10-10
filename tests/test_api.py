@@ -335,8 +335,172 @@ def test_unifi_config_dict_fallback_and_uos_safety():
     print("SUCCESS: Defensive UniFi config fallback & UOS schema safety tests passed cleanly!")
 
 
+def test_vlan_remapping_and_wlan_crud():
+    state.reset()
+    from src.translator.remapper import remap_ip_address, VlanRemapper
+    from src.gui.app import (
+        add_wlan_api,
+        update_wlan_api,
+        delete_wlan_api,
+        remap_network_api,
+        remap_preview_api,
+    )
+    from src.models import UniFiTargetConfig, UniFiNetwork, UniFiFixedIp, UniFiWlan, UniFiFirewallRule
+
+    class MockRequest:
+        def __init__(self, json_data):
+            self._json = json_data
+
+        async def json(self):
+            return self._json
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    # 1. Pure IP / Subnet remapping calculations
+    # Host IP shift
+    assert remap_ip_address("192.168.99.55", "192.168.99.0/24", "192.168.90.0/24") == "192.168.90.55"
+    assert remap_ip_address("192.168.99.1", "192.168.99.1/24", "192.168.90.1/24") == "192.168.90.1"
+    # Network CIDR shift
+    assert remap_ip_address("192.168.99.0/24", "192.168.99.0/24", "192.168.90.0/24") == "192.168.90.0/24"
+    # Unrelated IP stays untouched
+    assert remap_ip_address("10.0.0.1", "192.168.99.0/24", "192.168.90.0/24") == "10.0.0.1"
+
+    # 2. Test VlanRemapper.remap cascading changes
+    cfg = UniFiTargetConfig()
+    cfg.networks = [
+        UniFiNetwork(name="LAN", vlan_id=20, gateway_cidr="192.168.99.1/24", dhcp_start="192.168.99.10", dhcp_stop="192.168.99.250")
+    ]
+    cfg.fixed_ips = [
+        UniFiFixedIp(name="NAS-Server", mac="11:22:33:44:55:aa", fixed_ip="192.168.99.55", network_name="LAN")
+    ]
+    cfg.wlans = [
+        UniFiWlan(name="Office-WiFi", security="wpapsk", vlan_id=20)
+    ]
+    cfg.firewall_rules = [
+        UniFiFirewallRule(rule_index=2001, name="Allow-LAN-to-NAS", ruleset="LAN_IN", action="accept", protocol="all",
+                          src_address="192.168.99.0/24", dst_address="192.168.99.55")
+    ]
+
+    res = VlanRemapper.remap(
+        cfg,
+        source_vlan=20,
+        target_vlan=90,
+        source_cidr="192.168.99.1/24",
+        target_cidr="192.168.90.1/24",
+        target_name="LAN-Office",
+        remap_clients=True,
+        remap_wlans=True,
+        remap_rules=True
+    )
+
+    assert res["success"] is True
+    assert res["clients_remapped"] == 1
+    assert res["wlans_remapped"] == 1
+    assert res["rules_remapped"] == 1
+
+    # Verify cascading objects
+    assert cfg.networks[0].vlan_id == 90
+    assert cfg.networks[0].gateway_cidr == "192.168.90.1/24"
+    assert cfg.networks[0].name == "LAN-Office"
+    assert cfg.networks[0].dhcp_start == "192.168.90.10"
+    assert cfg.networks[0].dhcp_stop == "192.168.90.250"
+
+    assert cfg.fixed_ips[0].fixed_ip == "192.168.90.55"
+    assert cfg.fixed_ips[0].network_name == "LAN-Office"
+
+    assert cfg.wlans[0].vlan_id == 90
+
+    assert cfg.firewall_rules[0].src_address == "192.168.90.0/24"
+    assert cfg.firewall_rules[0].dst_address == "192.168.90.55"
+
+    # 3. Test Preview & Remap APIs
+    state.unifi_cfg = cfg
+
+    # 3a. Preview API
+    prev_req = MockRequest({
+        "source_vlan_id": 90,
+        "new_vlan_id": 95,
+        "new_gateway_cidr": "192.168.95.1/24",
+        "new_name": "LAN-Migrated",
+        "remap_clients": True,
+        "remap_wlans": True,
+        "remap_rules": True
+    })
+    prev_res = loop.run_until_complete(remap_preview_api(prev_req))
+    assert prev_res.status_code == 200
+    prev_data = json.loads(prev_res.body.decode("utf-8"))
+    assert prev_data["success"] is True
+    assert prev_data["preview"]["clients_count"] == 1
+    assert prev_data["preview"]["wlans_count"] == 1
+    assert prev_data["preview"]["rules_count"] == 1
+    assert prev_data["preview"]["client_diffs"][0]["new_ip"] == "192.168.95.55"
+
+    # 3b. Execute Remap API
+    exec_req = MockRequest({
+        "source_vlan_id": 90,
+        "new_vlan_id": 95,
+        "new_gateway_cidr": "192.168.95.1/24",
+        "new_name": "LAN-Migrated",
+        "remap_clients": True,
+        "remap_wlans": True,
+        "remap_rules": True
+    })
+    exec_res = loop.run_until_complete(remap_network_api(exec_req))
+    assert exec_res.status_code == 200
+    exec_data = json.loads(exec_res.body.decode("utf-8"))
+    assert exec_data["success"] is True
+    assert cfg.networks[0].vlan_id == 95
+    assert cfg.fixed_ips[0].fixed_ip == "192.168.95.55"
+    assert cfg.wlans[0].vlan_id == 95
+
+    # 4. Test Wi-Fi WLAN CRUD APIs
+    # Add new WLAN
+    add_wlan_req = MockRequest({
+        "wlan": {
+            "name": "Guest-Hotspot",
+            "vlan_id": 95,
+            "security": "wpapsk",
+            "passphrase": "GuestPassword123",
+            "is_guest": True,
+            "enabled": True
+        }
+    })
+    add_wlan_res = loop.run_until_complete(add_wlan_api(add_wlan_req))
+    assert add_wlan_res.status_code == 200
+    assert len(cfg.wlans) == 2
+    assert cfg.wlans[1].name == "Guest-Hotspot"
+    assert cfg.wlans[1].is_guest is True
+
+    # Update WLAN VLAN
+    upd_wlan_req = MockRequest({
+        "index": 1,
+        "wlan": {
+            "name": "Guest-Hotspot-V2",
+            "vlan_id": 100,
+            "security": "wpapsk",
+            "passphrase": "GuestPassword123",
+            "is_guest": True,
+            "enabled": True
+        }
+    })
+    upd_wlan_res = loop.run_until_complete(update_wlan_api(upd_wlan_req))
+    assert upd_wlan_res.status_code == 200
+    assert cfg.wlans[1].name == "Guest-Hotspot-V2"
+    assert cfg.wlans[1].vlan_id == 100
+
+    # Delete WLAN
+    del_wlan_req = MockRequest({"index": 1})
+    del_wlan_res = loop.run_until_complete(delete_wlan_api(del_wlan_req))
+    assert del_wlan_res.status_code == 200
+    assert len(cfg.wlans) == 1
+
+    print("SUCCESS: VLAN remapping cascading migration & WLAN CRUD tests passed cleanly!")
+
+
 if __name__ == "__main__":
     test_core_flow()
     test_upload_export_and_unify_apis()
     test_network_and_fixed_ip_editing()
     test_unifi_config_dict_fallback_and_uos_safety()
+    test_vlan_remapping_and_wlan_crud()

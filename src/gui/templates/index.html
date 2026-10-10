@@ -494,9 +494,14 @@
 
       <!-- 3-Way Reconciliation Matrix Table -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-        <h3 class="text-sm font-semibold flex items-center gap-2 text-cyan-300">
-          <i class="fa-solid fa-code-compare"></i> 3-Wege Abgleich-Matrix: OPNsense ↔ UCG-Max ↔ UniFi OS Server
-        </h3>
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold flex items-center gap-2 text-cyan-300">
+            <i class="fa-solid fa-code-compare"></i> 3-Wege Abgleich-Matrix: OPNsense ↔ UCG-Max ↔ UniFi OS Server
+          </h3>
+          <button onclick="openVlanRemapModal()" class="px-3 py-1.5 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-800 text-indigo-300 text-xs font-semibold flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-shuffle"></i> VLANs zuordnen &amp; mergen
+          </button>
+        </div>
         <div class="overflow-x-auto">
           <table class="w-full text-xs text-left">
             <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
@@ -523,9 +528,17 @@
 
       <!-- Imported WLANs Table (from UOS) -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-        <h3 class="text-sm font-semibold flex items-center gap-2 text-purple-300">
-          <i class="fa-solid fa-wifi"></i> Aus UniFi OS Server übernommene Wi-Fi Netzwerke (SSIDs)
-        </h3>
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-semibold flex items-center gap-2 text-purple-300">
+              <i class="fa-solid fa-wifi"></i> Aus UniFi OS Server übernommene Wi-Fi Netzwerke (SSIDs)
+            </h3>
+            <p class="text-xs text-slate-400 mt-0.5">SSIDs anpassen, zugehöriges VLAN wählen oder neue Wi-Fi Netzwerke anlegen</p>
+          </div>
+          <button onclick="openAddWlanModal()" class="px-3 py-1.5 rounded-lg bg-purple-950/80 hover:bg-purple-900 border border-purple-800 text-purple-200 text-xs font-semibold flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-plus"></i> Neues Wi-Fi anlegen
+          </button>
+        </div>
         <div class="overflow-x-auto">
           <table class="w-full text-xs text-left">
             <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
@@ -535,11 +548,12 @@
                 <th class="py-2.5 px-3">Ziel-VLAN (OPNsense Bindung)</th>
                 <th class="py-2.5 px-3">Gast-Netzwerk</th>
                 <th class="py-2.5 px-3">Status für UCG-Max</th>
+                <th class="py-2.5 px-3 text-right">Aktionen</th>
               </tr>
             </thead>
             <tbody id="wlans-tbody" class="divide-y divide-slate-800">
               <tr>
-                <td colspan="5" class="py-4 text-center text-slate-500">
+                <td colspan="6" class="py-4 text-center text-slate-500">
                   Noch keine WLANs aus UniFi Server abgerufen.
                 </td>
               </tr>
@@ -702,12 +716,20 @@
       <!-- Networks Table -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
         <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold flex items-center gap-2 text-sky-400">
-            <i class="fa-solid fa-network-wired"></i> UniFi Virtual Networks (VLANs &amp; DHCP)
-          </h3>
-          <button onclick="openAddNetworkModal()" class="px-3 py-1 bg-sky-950 hover:bg-sky-900 border border-sky-700 text-sky-300 rounded-lg text-xs font-medium flex items-center gap-1.5 transition">
-            <i class="fa-solid fa-plus"></i> Neues Netzwerk anlegen
-          </button>
+          <div>
+            <h3 class="text-sm font-semibold flex items-center gap-2 text-sky-400">
+              <i class="fa-solid fa-network-wired"></i> UniFi Virtual Networks (VLANs &amp; DHCP)
+            </h3>
+            <p class="text-xs text-slate-400 mt-0.5">Virtuelle Netzwerke und kaskadierende Migration</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="openVlanRemapModal()" class="px-3 py-1 bg-indigo-950 hover:bg-indigo-900 border border-indigo-700 text-indigo-300 rounded-lg text-xs font-medium flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-shuffle"></i> VLAN / Subnetz migrieren &amp; mergen
+            </button>
+            <button onclick="openAddNetworkModal()" class="px-3 py-1 bg-sky-950 hover:bg-sky-900 border border-sky-700 text-sky-300 rounded-lg text-xs font-medium flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-plus"></i> Neues Netzwerk anlegen
+            </button>
+          </div>
         </div>
         <div class="overflow-x-auto">
           <table class="w-full text-xs text-left">
@@ -917,12 +939,20 @@
         <!-- Wi-Fi WLANs from UOS -->
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 md:col-span-2">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-semibold flex items-center gap-2 text-purple-300">
-              <i class="fa-solid fa-wifi text-purple-400"></i> Wi-Fi Netzwerke (SSIDs aus UniFi Server)
-            </h3>
-            <button onclick="switchTab('sources')" class="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
-              <i class="fa-solid fa-arrow-up-right-from-square"></i> In 3-Wege-Sync verwalten
-            </button>
+            <div>
+              <h3 class="text-sm font-semibold flex items-center gap-2 text-purple-300">
+                <i class="fa-solid fa-wifi text-purple-400"></i> Wi-Fi Netzwerke (SSIDs für UCG-Max)
+              </h3>
+              <p class="text-xs text-slate-400 mt-0.5">Drahtlosnetzwerke mit VLAN-Bindung und Sicherheitsstandards</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="openAddWlanModal()" class="px-2.5 py-1 rounded bg-purple-950 hover:bg-purple-900 border border-purple-800 text-purple-200 text-xs font-medium inline-flex items-center gap-1 transition">
+                <i class="fa-solid fa-plus"></i> Neues Wi-Fi anlegen
+              </button>
+              <button onclick="switchTab('sources')" class="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
+                <i class="fa-solid fa-arrow-up-right-from-square"></i> In 3-Wege-Sync verwalten
+              </button>
+            </div>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-xs text-left">
@@ -932,10 +962,11 @@
                   <th class="py-2 px-3">Sicherheit</th>
                   <th class="py-2 px-3">Ziel-VLAN</th>
                   <th class="py-2 px-3">Typ</th>
+                  <th class="py-2 px-3 text-right">Aktionen</th>
                 </tr>
               </thead>
               <tbody id="unifi-wlans-review-tbody" class="divide-y divide-slate-800">
-                <tr><td colspan="4" class="py-3 text-center text-slate-500">Keine WLANs geladen. Rufen Sie die Daten im Tab "2. Live-Quellen &amp; 3-Wege-Sync" ab.</td></tr>
+                <tr><td colspan="5" class="py-3 text-center text-slate-500">Keine WLANs geladen. Rufen Sie die Daten im Tab "2. Live-Quellen &amp; 3-Wege-Sync" ab.</td></tr>
               </tbody>
             </table>
           </div>
@@ -1218,6 +1249,28 @@
             <input type="text" id="modal-net-domain" placeholder="local" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500 font-mono">
           </div>
         </div>
+        <div id="modal-net-migration-box" class="p-3 bg-indigo-950/40 rounded-xl border border-indigo-800/60 space-y-2">
+          <div class="flex items-center gap-2 text-indigo-300 text-xs font-semibold">
+            <i class="fa-solid fa-arrows-split-up-and-left"></i> Kaskadierende Subnetz- &amp; VLAN-Migration
+          </div>
+          <p class="text-[11px] text-slate-400">
+            Wenn Sie die VLAN-ID oder das Gateway/Subnetz ändern (z. B. VLAN 20 ➔ 90, 192.168.99.1/24 ➔ 192.168.90.1/24):
+          </p>
+          <div class="space-y-1.5 text-xs text-slate-300">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="modal-net-cascade-clients" checked class="rounded bg-slate-900 border-slate-700 text-sky-500 w-3.5 h-3.5">
+              <span>Feste Client-IPs automatisch umadressieren (z. B. 192.168.99.X ➔ 192.168.90.X)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="modal-net-cascade-wlans" checked class="rounded bg-slate-900 border-slate-700 text-sky-500 w-3.5 h-3.5">
+              <span>Zugeordnete Wi-Fi WLANs auf neues VLAN umstellen</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="modal-net-cascade-rules" checked class="rounded bg-slate-900 border-slate-700 text-sky-500 w-3.5 h-3.5">
+              <span>Firewall-Regeln, Port-Forwards &amp; DNS anpassen</span>
+            </label>
+          </div>
+        </div>
       </div>
 
       <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
@@ -1270,6 +1323,185 @@
         <button onclick="closeEditFixedIpModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">Abbrechen</button>
         <button onclick="saveFixedIpModal()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5">
           <i class="fa-solid fa-check"></i> Speichern &amp; Übernehmen
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Wi-Fi WLAN (SSID & VLAN) anpassen oder anlegen -->
+  <div id="edit-wlan-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-purple-800/60 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <h3 class="text-sm font-semibold text-purple-300 flex items-center gap-2">
+          <i class="fa-solid fa-wifi text-purple-400"></i> <span id="modal-wlan-title">Wi-Fi &amp; VLAN anpassen</span>
+        </h3>
+        <button onclick="closeEditWlanModal()" class="text-slate-400 hover:text-slate-200 text-lg">&times;</button>
+      </div>
+
+      <input type="hidden" id="modal-wlan-index" value="-1">
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">SSID Name (WLAN-Name)</label>
+          <input type="text" id="modal-wlan-name" placeholder="z.B. Corporate-WLAN" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500 font-semibold">
+        </div>
+
+        <div>
+          <label class="block text-slate-400 mb-1">Zugeordnetes Netzwerk / Ziel-VLAN</label>
+          <select id="modal-wlan-vlan-select" onchange="onModalWlanVlanChange()" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-purple-500 font-mono">
+            <!-- Dynamisch befüllt mit allen Ziel-Netzwerken -->
+          </select>
+          <div id="modal-wlan-custom-vlan-box" class="mt-2 hidden">
+            <label class="block text-[11px] text-slate-400 mb-1">Benutzerdefinierte VLAN-ID (1-4094)</label>
+            <input type="number" id="modal-wlan-custom-vlan" min="1" max="4094" placeholder="z.B. 90" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-slate-200 font-mono">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 mb-1">Sicherheitsstandard</label>
+            <select id="modal-wlan-security" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-purple-500">
+              <option value="wpapsk">WPA2 Personal (Standard)</option>
+              <option value="wpa3">WPA3 Personal</option>
+              <option value="open">Offen (Kein Passwort)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">WPA Passphrase / Schlüssel</label>
+            <div class="relative">
+              <input type="password" id="modal-wlan-pass" placeholder="WLAN-Passwort" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500 font-mono pr-8">
+              <button type="button" onclick="toggleWlanPassVisibility()" class="absolute right-2.5 top-2.5 text-slate-500 hover:text-slate-300 text-xs">
+                <i id="modal-wlan-pass-eye" class="fa-solid fa-eye"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="pt-2 flex items-center justify-between border-t border-slate-800/60">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="modal-wlan-guest" class="rounded bg-slate-900 border-slate-700 text-purple-500 focus:ring-0 w-4 h-4">
+            <span class="text-slate-300 font-medium">Als Gast-Netzwerk isolieren</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="modal-wlan-enabled" checked class="rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0 w-4 h-4">
+            <span class="text-slate-300 font-medium">SSID aktivieren</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+        <button onclick="closeEditWlanModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">Abbrechen</button>
+        <button onclick="saveWlanModal()" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5">
+          <i class="fa-solid fa-check"></i> Speichern &amp; Übernehmen
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: VLAN & Subnetz Remapping & Fusion (z. B. VLAN 20 192.168.99.0/24 ➔ VLAN 90 192.168.90.0/24) -->
+  <div id="vlan-remap-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-indigo-700/80 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <h3 class="text-sm font-semibold text-indigo-300 flex items-center gap-2">
+          <i class="fa-solid fa-shuffle text-indigo-400"></i> VLAN- &amp; Subnetz-Remapping / Fusion
+        </h3>
+        <button onclick="closeVlanRemapModal()" class="text-slate-400 hover:text-slate-200 text-lg">&times;</button>
+      </div>
+
+      <p class="text-xs text-slate-400">
+        Ordnen Sie ein Quell-VLAN (z. B. aus OPNsense) einer neuen VLAN-ID und einem neuen IP-Bereich auf dem Zielsystem zu, oder führen Sie es mit einem bereits auf UCG-Max eingerichteten Netzwerk zusammen.
+      </p>
+
+      <div class="space-y-4 text-xs">
+        <div>
+          <label class="block font-medium text-slate-300 mb-1">1. Quell-Netzwerk auswählen (OPNsense / Ausgangskonfiguration)</label>
+          <select id="remap-src-select" onchange="onRemapSourceChange()" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono">
+            <!-- Dynamisch befüllt -->
+          </select>
+        </div>
+
+        <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800 space-y-3">
+          <label class="block font-medium text-slate-300">2. Ziel-Vorgehensweise wählen</label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="flex items-start gap-2 p-2.5 rounded-lg border border-indigo-900/60 bg-indigo-950/20 cursor-pointer">
+              <input type="radio" name="remap-mode" id="remap-mode-custom" value="custom" checked onchange="toggleRemapMode()" class="mt-0.5 text-indigo-500">
+              <div>
+                <span class="block font-semibold text-slate-200 text-[11px]">Auf neues VLAN &amp; Subnetz migrieren</span>
+                <span class="text-[10px] text-slate-400 block mt-0.5">z.B. VLAN 20 ➔ VLAN 90, 192.168.99.X ➔ 192.168.90.X</span>
+              </div>
+            </label>
+            <label class="flex items-start gap-2 p-2.5 rounded-lg border border-slate-800 bg-slate-900/40 cursor-pointer">
+              <input type="radio" name="remap-mode" id="remap-mode-ucg" value="ucg" onchange="toggleRemapMode()" class="mt-0.5 text-indigo-500">
+              <div>
+                <span class="block font-semibold text-slate-200 text-[11px]">Mit existierendem UCG-Netzwerk mergen</span>
+                <span class="text-[10px] text-slate-400 block mt-0.5">Führt das Netz mit einem vorhandenen UCG-Netz zusammen</span>
+              </div>
+            </label>
+          </div>
+
+          <!-- Fields for Custom Target -->
+          <div id="remap-custom-fields" class="space-y-3 pt-2">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-slate-400 mb-1">Neue Ziel-VLAN-ID</label>
+                <input type="number" id="remap-target-vlan" min="1" max="4094" placeholder="z.B. 90" onchange="updateRemapPreview()" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono font-bold">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">Neues Gateway / CIDR</label>
+                <input type="text" id="remap-target-cidr" placeholder="z.B. 192.168.90.1/24" onchange="updateRemapPreview()" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono font-bold">
+              </div>
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1">Ziel-Netzwerkname (optional)</label>
+              <input type="text" id="remap-target-name" placeholder="z.B. LAN (Neues Subnetz)" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200">
+            </div>
+          </div>
+
+          <!-- Fields for UCG merge -->
+          <div id="remap-ucg-fields" class="space-y-2 pt-2 hidden">
+            <label class="block text-slate-400 mb-1">UCG-Netzwerk zum Zusammenführen auswählen</label>
+            <select id="remap-ucg-select" onchange="onSelectUcgTargetNet()" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono">
+              <!-- Dynamisch aus UCG-Netzen befüllt -->
+            </select>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <label class="block font-medium text-slate-300">3. Kaskadierende Anpassungen</label>
+          <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800 space-y-2 text-xs">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="remap-cascade-clients" checked onchange="updateRemapPreview()" class="rounded bg-slate-900 border-slate-700 text-indigo-500 w-4 h-4">
+              <span>Feste Client-IPs umadressieren (z. B. 192.168.99.X ➔ 192.168.90.X)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="remap-cascade-wlans" checked onchange="updateRemapPreview()" class="rounded bg-slate-900 border-slate-700 text-indigo-500 w-4 h-4">
+              <span>Verknüpfte Wi-Fi WLANs auf neues VLAN umbiegen</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="remap-cascade-rules" checked onchange="updateRemapPreview()" class="rounded bg-slate-900 border-slate-700 text-indigo-500 w-4 h-4">
+              <span>Firewall-Regeln, Port-Forwards &amp; DNS-Overrides anpassen</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Live Preview Box -->
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-medium text-indigo-300 flex items-center gap-1.5">
+              <i class="fa-solid fa-eye"></i> Vorschau der Migration
+            </span>
+            <span id="remap-preview-status" class="text-[11px] text-slate-500">Berechne...</span>
+          </div>
+          <div id="remap-preview-container" class="bg-slate-950 border border-slate-800 rounded-xl p-3 max-h-40 overflow-y-auto font-mono text-[11px] space-y-1 text-slate-300">
+            Wählen Sie ein Quell- und Zielnetzwerk, um die Vorschau zu sehen.
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+        <button onclick="closeVlanRemapModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">Abbrechen</button>
+        <button onclick="applyVlanRemap()" id="btn-apply-remap" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-indigo-900/30">
+          <i class="fa-solid fa-shuffle"></i> Jetzt migrieren &amp; zusammenführen
         </button>
       </div>
     </div>
@@ -1907,6 +2139,8 @@
 
     let currentNetworks = [];
     let currentFixedIps = [];
+    let currentWlans = [];
+    let currentUcgNetworks = [];
 
     function renderUnifiReview(u) {
       if (!u) return;
@@ -1918,6 +2152,8 @@
       const forwards = u.port_forwards || [];
       const dns = u.dns_records || [];
       const wlans = u.wlans || [];
+      currentWlans = wlans;
+      if (u.ucg_networks) currentUcgNetworks = u.ucg_networks;
 
       // Networks
       const netTbody = document.getElementById('unifi-networks-tbody');
@@ -1941,6 +2177,9 @@
               </td>
               <td class="py-2.5 px-3 font-mono text-slate-300 text-xs">${n.dhcp_range || (n.dhcp_start && n.dhcp_stop ? n.dhcp_start + ' - ' + n.dhcp_stop : 'Statisch')}</td>
               <td class="py-2.5 px-3 text-right whitespace-nowrap">
+                <button onclick="openVlanRemapModal(${n.vlan_id})" class="px-2.5 py-1 rounded bg-indigo-950 hover:bg-indigo-900 border border-indigo-800 text-indigo-300 text-xs font-medium inline-flex items-center gap-1 transition mr-1" title="VLAN & Subnetz migrieren oder mergen">
+                  <i class="fa-solid fa-shuffle"></i> Migrieren / Mergen
+                </button>
                 <button onclick="openEditNetworkModal(${idx})" class="px-2.5 py-1 rounded bg-sky-950 hover:bg-sky-900 border border-sky-800 text-sky-300 text-xs font-medium inline-flex items-center gap-1 transition" title="Netzwerk / VLAN anpassen">
                   <i class="fa-solid fa-pen-to-square"></i> Anpassen
                 </button>
@@ -2062,9 +2301,7 @@
       if (u.reconciliation) {
         renderReconciliation(u.reconciliation);
       }
-      if (wlans && wlans.length > 0) {
-        renderWlans(wlans);
-      }
+      renderWlans(wlans || []);
     }
 
     // -------------------------------------------------------------------------
@@ -2148,9 +2385,20 @@
       if (isNaN(vlan_id) || vlan_id < 1 || vlan_id > 4094) { showToast('VLAN ID muss zwischen 1 und 4094 liegen.', true); return; }
       if (!gateway_cidr.includes('/')) { showToast('Gateway muss CIDR enthalten (z.B. 192.168.10.1/24).', true); return; }
 
+      const remapClients = document.getElementById('modal-net-cascade-clients') ? document.getElementById('modal-net-cascade-clients').checked : true;
+      const remapWlans = document.getElementById('modal-net-cascade-wlans') ? document.getElementById('modal-net-cascade-wlans').checked : true;
+      const remapRules = document.getElementById('modal-net-cascade-rules') ? document.getElementById('modal-net-cascade-rules').checked : true;
+
       const netData = { name, vlan_id, gateway_cidr, dhcp_enabled, dhcp_start, dhcp_stop, purpose, domain_name };
       const endpoint = idx >= 0 ? '/api/networks/update' : '/api/networks/add';
-      const payload = idx >= 0 ? { index: idx, network: netData } : { network: netData };
+      const payload = idx >= 0 ? {
+        index: idx,
+        network: netData,
+        cascade: true,
+        remap_clients: remapClients,
+        remap_wlans: remapWlans,
+        remap_rules: remapRules
+      } : { network: netData };
 
       try {
         const res = await fetch(endpoint, {
@@ -2288,6 +2536,417 @@
     }
 
     // -------------------------------------------------------------------------
+    // Wi-Fi WLAN Modal Editing & Management Handlers
+    // -------------------------------------------------------------------------
+    function openEditWlanModal(idx) {
+      if (idx < 0 || idx >= currentWlans.length) return;
+      const w = currentWlans[idx];
+      document.getElementById('modal-wlan-index').value = idx;
+      document.getElementById('modal-wlan-title').innerText = `Wi-Fi & VLAN anpassen: ${w.name}`;
+      document.getElementById('modal-wlan-name').value = w.name || '';
+      document.getElementById('modal-wlan-security').value = w.security || 'wpapsk';
+      document.getElementById('modal-wlan-pass').value = w.passphrase || '';
+      document.getElementById('modal-wlan-guest').checked = !!w.is_guest;
+      document.getElementById('modal-wlan-enabled').checked = (w.enabled !== false);
+
+      const sel = document.getElementById('modal-wlan-vlan-select');
+      let optionsHtml = '<option value="0">Default / Untagged (VLAN 1)</option>';
+      let foundExact = (w.vlan_id === 0 || !w.vlan_id);
+      const targetVlan = w.vlan_id || 0;
+
+      if (currentNetworks && currentNetworks.length > 0) {
+        currentNetworks.forEach(n => {
+          const isSel = (n.vlan_id === targetVlan);
+          if (isSel) foundExact = true;
+          optionsHtml += `<option value="${n.vlan_id}" ${isSel ? 'selected' : ''}>VLAN ${n.vlan_id}: ${n.name} (${n.gateway_cidr})</option>`;
+        });
+      }
+
+      optionsHtml += `<option value="custom" ${!foundExact && targetVlan > 0 ? 'selected' : ''}>Benutzerdefinierte VLAN-ID...</option>`;
+      sel.innerHTML = optionsHtml;
+
+      const customBox = document.getElementById('modal-wlan-custom-vlan-box');
+      const customInput = document.getElementById('modal-wlan-custom-vlan');
+      if (!foundExact && targetVlan > 0) {
+        customBox.classList.remove('hidden');
+        customInput.value = targetVlan;
+      } else {
+        customBox.classList.add('hidden');
+        customInput.value = '';
+      }
+
+      document.getElementById('edit-wlan-modal').classList.remove('hidden');
+    }
+
+    function openAddWlanModal() {
+      document.getElementById('modal-wlan-index').value = -1;
+      document.getElementById('modal-wlan-title').innerText = 'Neues Wi-Fi Netzwerk (SSID) anlegen';
+      document.getElementById('modal-wlan-name').value = '';
+      document.getElementById('modal-wlan-security').value = 'wpapsk';
+      document.getElementById('modal-wlan-pass').value = '';
+      document.getElementById('modal-wlan-guest').checked = false;
+      document.getElementById('modal-wlan-enabled').checked = true;
+
+      const sel = document.getElementById('modal-wlan-vlan-select');
+      let optionsHtml = '<option value="0">Default / Untagged (VLAN 1)</option>';
+      if (currentNetworks && currentNetworks.length > 0) {
+        currentNetworks.forEach(n => {
+          optionsHtml += `<option value="${n.vlan_id}">VLAN ${n.vlan_id}: ${n.name} (${n.gateway_cidr})</option>`;
+        });
+      }
+      optionsHtml += '<option value="custom">Benutzerdefinierte VLAN-ID...</option>';
+      sel.innerHTML = optionsHtml;
+
+      document.getElementById('modal-wlan-custom-vlan-box').classList.add('hidden');
+      document.getElementById('modal-wlan-custom-vlan').value = '';
+      document.getElementById('edit-wlan-modal').classList.remove('hidden');
+    }
+
+    function closeEditWlanModal() {
+      document.getElementById('edit-wlan-modal').classList.add('hidden');
+    }
+
+    function onModalWlanVlanChange() {
+      const selVal = document.getElementById('modal-wlan-vlan-select').value;
+      const customBox = document.getElementById('modal-wlan-custom-vlan-box');
+      if (selVal === 'custom') {
+        customBox.classList.remove('hidden');
+        document.getElementById('modal-wlan-custom-vlan').focus();
+      } else {
+        customBox.classList.add('hidden');
+      }
+    }
+
+    function toggleWlanPassVisibility() {
+      const inp = document.getElementById('modal-wlan-pass');
+      const icon = document.getElementById('modal-wlan-pass-eye');
+      if (inp.type === 'password') {
+        inp.type = 'text';
+        icon.className = 'fa-solid fa-eye-slash';
+      } else {
+        inp.type = 'password';
+        icon.className = 'fa-solid fa-eye';
+      }
+    }
+
+    async function saveWlanModal() {
+      const idx = parseInt(document.getElementById('modal-wlan-index').value);
+      const name = document.getElementById('modal-wlan-name').value.trim();
+      const selVal = document.getElementById('modal-wlan-vlan-select').value;
+      let vlan_id = 0;
+      if (selVal === 'custom') {
+        vlan_id = parseInt(document.getElementById('modal-wlan-custom-vlan').value || '0');
+      } else {
+        vlan_id = parseInt(selVal);
+      }
+      const security = document.getElementById('modal-wlan-security').value;
+      const passphrase = document.getElementById('modal-wlan-pass').value;
+      const is_guest = document.getElementById('modal-wlan-guest').checked;
+      const enabled = document.getElementById('modal-wlan-enabled').checked;
+
+      if (!name) {
+        showToast('SSID Name darf nicht leer sein.', true);
+        return;
+      }
+      if (vlan_id < 0 || vlan_id > 4094) {
+        showToast('VLAN-ID muss zwischen 0 und 4094 liegen.', true);
+        return;
+      }
+      if (security !== 'open' && passphrase && passphrase.length < 8) {
+        showToast('WPA Passphrase muss mindestens 8 Zeichen lang sein.', true);
+        return;
+      }
+
+      const wlanData = { name, vlan_id, security, passphrase, is_guest, enabled };
+      const endpoint = idx >= 0 ? '/api/wlans/update' : '/api/wlans/add';
+      const payload = idx >= 0 ? { index: idx, wlan: wlanData } : { wlan: wlanData };
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeEditWlanModal();
+          if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
+          if (data.wlans) renderWlans(data.wlans);
+          showToast(data.message || 'WLAN erfolgreich gespeichert!');
+        } else {
+          showToast(data.error || 'Fehler beim Speichern des WLANs', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    async function deleteWlan(idx) {
+      if (idx < 0 || idx >= currentWlans.length) return;
+      const w = currentWlans[idx];
+      if (!confirm(`Möchten Sie das Wi-Fi Netzwerk '${w.name}' wirklich löschen?`)) return;
+
+      try {
+        const res = await fetch('/api/wlans/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ index: idx })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
+          if (data.wlans) renderWlans(data.wlans);
+          showToast(data.message || 'WLAN gelöscht!');
+        } else {
+          showToast(data.error || 'Fehler beim Löschen des WLANs', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // VLAN & Subnet Remapping & Fusion Handlers
+    // -------------------------------------------------------------------------
+    function openVlanRemapModal(defaultSourceVlan = null) {
+      const srcSel = document.getElementById('remap-src-select');
+      if (!currentNetworks || currentNetworks.length === 0) {
+        showToast('Keine Netzwerke zur Migration vorhanden. Bitte zuerst Konfiguration importieren.', true);
+        return;
+      }
+
+      srcSel.innerHTML = currentNetworks.map(n => `
+        <option value="${n.vlan_id}">VLAN ${n.vlan_id}: ${n.name} (${n.gateway_cidr})</option>
+      `).join('');
+
+      if (defaultSourceVlan !== null) {
+        const matchOpt = Array.from(srcSel.options).find(o => parseInt(o.value) === parseInt(defaultSourceVlan));
+        if (matchOpt) srcSel.value = defaultSourceVlan;
+      }
+
+      const ucgSel = document.getElementById('remap-ucg-select');
+      if (currentUcgNetworks && currentUcgNetworks.length > 0) {
+        ucgSel.innerHTML = currentUcgNetworks.map(n => `
+          <option value="${n.vlan_id}">VLAN ${n.vlan_id}: ${n.name} (${n.gateway_cidr})</option>
+        `).join('');
+      } else {
+        ucgSel.innerHTML = '<option value="">Keine UCG-Netze abgerufen (zuerst im Tab 2 abrufen)</option>';
+      }
+
+      document.getElementById('remap-mode-custom').checked = true;
+      toggleRemapMode();
+      onRemapSourceChange();
+
+      document.getElementById('vlan-remap-modal').classList.remove('hidden');
+    }
+
+    function closeVlanRemapModal() {
+      document.getElementById('vlan-remap-modal').classList.add('hidden');
+    }
+
+    function toggleRemapMode() {
+      const isCustom = document.getElementById('remap-mode-custom').checked;
+      const customBox = document.getElementById('remap-custom-fields');
+      const ucgBox = document.getElementById('remap-ucg-fields');
+      if (isCustom) {
+        customBox.classList.remove('hidden');
+        ucgBox.classList.add('hidden');
+      } else {
+        customBox.classList.add('hidden');
+        ucgBox.classList.remove('hidden');
+        onSelectUcgTargetNet();
+      }
+      updateRemapPreview();
+    }
+
+    function onRemapSourceChange() {
+      const srcVlan = parseInt(document.getElementById('remap-src-select').value);
+      const srcNet = currentNetworks.find(n => n.vlan_id === srcVlan);
+      if (srcNet) {
+        const nameInput = document.getElementById('remap-target-name');
+        if (!nameInput.value || nameInput.value.includes('LAN') || nameInput.value.includes('VLAN')) {
+          nameInput.value = srcNet.name;
+        }
+      }
+      updateRemapPreview();
+    }
+
+    function onSelectUcgTargetNet() {
+      const ucgSel = document.getElementById('remap-ucg-select');
+      const targetVlan = parseInt(ucgSel.value);
+      const targetNet = currentUcgNetworks.find(n => n.vlan_id === targetVlan);
+      if (targetNet) {
+        document.getElementById('remap-target-vlan').value = targetNet.vlan_id;
+        document.getElementById('remap-target-cidr').value = targetNet.gateway_cidr;
+        document.getElementById('remap-target-name').value = targetNet.name;
+      }
+      updateRemapPreview();
+    }
+
+    let remapDebounceTimer = null;
+    function updateRemapPreview() {
+      clearTimeout(remapDebounceTimer);
+      remapDebounceTimer = setTimeout(async () => {
+        const srcVlan = parseInt(document.getElementById('remap-src-select').value);
+        const isCustom = document.getElementById('remap-mode-custom').checked;
+        let newVlan = parseInt(document.getElementById('remap-target-vlan').value);
+        let newCidr = (document.getElementById('remap-target-cidr').value || '').trim();
+        let newName = (document.getElementById('remap-target-name').value || '').trim();
+
+        if (!isCustom) {
+          const ucgSel = document.getElementById('remap-ucg-select');
+          const targetVlan = parseInt(ucgSel.value);
+          const targetNet = currentUcgNetworks.find(n => n.vlan_id === targetVlan);
+          if (targetNet) {
+            newVlan = targetNet.vlan_id;
+            newCidr = targetNet.gateway_cidr;
+            newName = targetNet.name;
+          }
+        }
+
+        const remapClients = document.getElementById('remap-cascade-clients').checked;
+        const remapWlans = document.getElementById('remap-cascade-wlans').checked;
+        const remapRules = document.getElementById('remap-cascade-rules').checked;
+
+        const previewContainer = document.getElementById('remap-preview-container');
+        const statusEl = document.getElementById('remap-preview-status');
+
+        if (isNaN(srcVlan) || isNaN(newVlan) || !newCidr.includes('/')) {
+          previewContainer.innerHTML = '<span class="text-slate-500">Bitte Ziel-VLAN-ID und Ziel-CIDR angeben...</span>';
+          if (statusEl) statusEl.innerText = 'Warte auf Eingabe';
+          return;
+        }
+
+        if (statusEl) statusEl.innerText = 'Berechne...';
+
+        try {
+          const res = await fetch('/api/networks/remap-preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              source_vlan_id: srcVlan,
+              new_vlan_id: newVlan,
+              new_gateway_cidr: newCidr,
+              new_name: newName,
+              remap_clients: remapClients,
+              remap_wlans: remapWlans,
+              remap_rules: remapRules
+            })
+          });
+          const data = await res.json();
+          if (data.success && data.preview) {
+            const p = data.preview;
+            if (statusEl) statusEl.innerText = 'Vorschau bereit';
+
+            let lines = [];
+            lines.push(`<div class="font-bold text-indigo-300 pb-1 border-b border-slate-800">${p.summary}</div>`);
+            lines.push(`<div class="text-slate-400">Betroffene Feste Client-IPs: <span class="font-bold text-teal-300">${p.clients_count}</span> | Verknüpfte WLANs: <span class="font-bold text-purple-300">${p.wlans_count}</span> | Angepasste Regeln: <span class="font-bold text-sky-300">${p.rules_count}</span></div>`);
+
+            if (p.client_diffs && p.client_diffs.length > 0) {
+              lines.push('<div class="mt-1 text-slate-400 font-semibold text-[10px] uppercase">Beispiele Client-IP Remapping:</div>');
+              p.client_diffs.slice(0, 5).forEach(d => {
+                lines.push(`<div class="text-slate-300 pl-2">➔ ${d.name}: <span class="text-rose-400">${d.old_ip}</span> ➜ <span class="text-emerald-400 font-bold">${d.new_ip}</span></div>`);
+              });
+              if (p.client_diffs.length > 5) {
+                lines.push(`<div class="text-slate-500 pl-2 text-[10px]">... und ${p.client_diffs.length - 5} weitere Clients</div>`);
+              }
+            }
+
+            if (p.wlan_diffs && p.wlan_diffs.length > 0) {
+              lines.push('<div class="mt-1 text-slate-400 font-semibold text-[10px] uppercase">WLAN VLAN-Bindungen:</div>');
+              p.wlan_diffs.forEach(d => {
+                lines.push(`<div class="text-slate-300 pl-2">➔ SSID <b>${d.name}</b>: VLAN <span class="text-rose-400">${d.old_vlan}</span> ➜ <span class="text-emerald-400 font-bold">VLAN ${d.new_vlan}</span></div>`);
+              });
+            }
+
+            previewContainer.innerHTML = lines.join('');
+          } else {
+            previewContainer.innerHTML = `<span class="text-rose-400">Fehler: ${data.error || 'Vorschau konnte nicht berechnet werden'}</span>`;
+            if (statusEl) statusEl.innerText = 'Fehler';
+          }
+        } catch (err) {
+          previewContainer.innerHTML = `<span class="text-rose-400">Verbindungsfehler: ${err.message}</span>`;
+          if (statusEl) statusEl.innerText = 'Fehler';
+        }
+      }, 250);
+    }
+
+    async function applyVlanRemap() {
+      const srcVlan = parseInt(document.getElementById('remap-src-select').value);
+      const isCustom = document.getElementById('remap-mode-custom').checked;
+      let newVlan = parseInt(document.getElementById('remap-target-vlan').value);
+      let newCidr = (document.getElementById('remap-target-cidr').value || '').trim();
+      let newName = (document.getElementById('remap-target-name').value || '').trim();
+      let mergeTargetVlan = null;
+
+      if (!isCustom) {
+        const ucgSel = document.getElementById('remap-ucg-select');
+        mergeTargetVlan = parseInt(ucgSel.value);
+        const targetNet = currentUcgNetworks.find(n => n.vlan_id === mergeTargetVlan);
+        if (targetNet) {
+          newVlan = targetNet.vlan_id;
+          newCidr = targetNet.gateway_cidr;
+          newName = targetNet.name;
+        }
+      }
+
+      if (isNaN(srcVlan) || isNaN(newVlan) || !newCidr.includes('/')) {
+        showToast('Bitte geben Sie ein gültiges Ziel-VLAN und Ziel-CIDR ein.', true);
+        return;
+      }
+
+      const remapClients = document.getElementById('remap-cascade-clients').checked;
+      const remapWlans = document.getElementById('remap-cascade-wlans').checked;
+      const remapRules = document.getElementById('remap-cascade-rules').checked;
+
+      const confirmMsg = `Möchten Sie das VLAN ${srcVlan} wirklich auf VLAN ${newVlan} (${newCidr}) umstellen und alle verknüpften Clients, WLANs und Regeln kaskadierend anpassen?`;
+      if (!confirm(confirmMsg)) return;
+
+      const btn = document.getElementById('btn-apply-remap');
+      const origHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Migriere...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/networks/remap', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source_vlan_id: srcVlan,
+            new_vlan_id: newVlan,
+            new_gateway_cidr: newCidr,
+            new_name: newName,
+            merge_target_vlan_id: mergeTargetVlan,
+            remap_clients: remapClients,
+            remap_wlans: remapWlans,
+            remap_rules: remapRules
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeVlanRemapModal();
+          if (data.unifi_mapped) {
+            renderUnifiReview(data.unifi_mapped);
+          }
+          if (data.reconciliation) {
+            renderReconciliation(data.reconciliation);
+          }
+          if (data.unifi_mapped && data.unifi_mapped.wlans) {
+            renderWlans(data.unifi_mapped.wlans);
+          }
+          showToast(data.message || 'VLAN-Remapping erfolgreich angewendet!');
+        } else {
+          showToast(data.error || 'Fehler beim Remapping', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      } finally {
+        btn.innerHTML = origHtml;
+        btn.disabled = false;
+      }
+    }
+
+    // -------------------------------------------------------------------------
     // Multi-Source Reconciliation & Merger
     // -------------------------------------------------------------------------
     function syncUcgCredentials() {
@@ -2347,6 +3006,11 @@
                         item.category === 'client' ? 'fa-laptop text-teal-400' :
                         item.category === 'device' ? 'fa-server text-indigo-400' : 'fa-tag text-slate-400';
 
+        let remapBtn = '';
+        if (item.category === 'network') {
+          remapBtn = ` <button onclick="openVlanRemapModal()" class="ml-1 text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold underline inline-flex items-center gap-1"><i class="fa-solid fa-shuffle"></i> Zuordnen / Mergen</button>`;
+        }
+
         return `
           <tr class="hover:bg-slate-800/40">
             <td class="py-2.5 px-3">
@@ -2359,27 +3023,28 @@
             <td class="py-2.5 px-3 font-mono text-sky-300">${item.ucg_val || '<span class="text-slate-600">-</span>'}</td>
             <td class="py-2.5 px-3 font-mono text-purple-300">${item.uos_val || '<span class="text-slate-600">-</span>'}</td>
             <td class="py-2.5 px-3">${badge}</td>
-            <td class="py-2.5 px-3 text-slate-400 text-xs">${item.explanation}</td>
+            <td class="py-2.5 px-3 text-slate-400 text-xs">${item.explanation}${remapBtn}</td>
           </tr>
         `;
       }).join('');
     }
 
     function renderWlans(wlans) {
+      currentWlans = wlans || [];
       const tbody1 = document.getElementById('wlans-tbody');
       const tbody2 = document.getElementById('unifi-wlans-review-tbody');
-      if (!wlans || wlans.length === 0) {
-        if (tbody1) tbody1.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-500">Keine WLANs importiert.</td></tr>';
-        if (tbody2) tbody2.innerHTML = '<tr><td colspan="4" class="py-3 text-center text-slate-500">Keine WLANs geladen.</td></tr>';
+      if (!currentWlans || currentWlans.length === 0) {
+        if (tbody1) tbody1.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-slate-500">Keine WLANs importiert.</td></tr>';
+        if (tbody2) tbody2.innerHTML = '<tr><td colspan="5" class="py-3 text-center text-slate-500">Keine WLANs geladen.</td></tr>';
         return;
       }
-      const html1 = wlans.map(w => `
+      const html1 = currentWlans.map((w, idx) => `
         <tr class="hover:bg-slate-800/40">
           <td class="py-2.5 px-3 font-semibold text-purple-300 flex items-center gap-2">
             <i class="fa-solid fa-wifi text-xs text-purple-400"></i> ${w.name}
           </td>
           <td class="py-2.5 px-3 font-mono text-slate-300">${(w.security || '').toUpperCase()}</td>
-          <td class="py-2.5 px-3 font-mono text-sky-400">${w.vlan_id ? 'VLAN ' + w.vlan_id : 'Default (Untagged)'}</td>
+          <td class="py-2.5 px-3 font-mono text-sky-400 font-semibold">${w.vlan_id ? 'VLAN ' + w.vlan_id : 'Default (Untagged)'}</td>
           <td class="py-2.5 px-3">
             <span class="px-2 py-0.5 rounded text-[10px] ${w.is_guest ? 'bg-amber-950 text-amber-400 border border-amber-800' : 'bg-slate-800 text-slate-400'}">
               ${w.is_guest ? 'Gast-Netz' : 'Standard'}
@@ -2387,18 +3052,36 @@
           </td>
           <td class="py-2.5 px-3">
             <span class="px-2 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800">
-              Bereit für UCG-Max
+              ${w.enabled !== false ? 'Bereit für UCG-Max' : 'Deaktiviert'}
             </span>
+          </td>
+          <td class="py-2.5 px-3 text-right whitespace-nowrap">
+            <button onclick="openEditWlanModal(${idx})" class="px-2.5 py-1 rounded bg-purple-950 hover:bg-purple-900 border border-purple-800 text-purple-300 text-xs font-medium inline-flex items-center gap-1 transition" title="WLAN & VLAN anpassen">
+              <i class="fa-solid fa-pen-to-square"></i> Anpassen
+            </button>
+            <button onclick="deleteWlan(${idx})" class="px-2 py-1 rounded bg-slate-800 hover:bg-red-950 border border-slate-700 hover:border-red-800 text-slate-400 hover:text-red-300 text-xs inline-flex items-center transition ml-1" title="WLAN löschen">
+              <i class="fa-solid fa-trash"></i>
+            </button>
           </td>
         </tr>
       `).join('');
 
-      const html2 = wlans.map(w => `
+      const html2 = currentWlans.map((w, idx) => `
         <tr class="hover:bg-slate-800/40">
-          <td class="py-2 px-3 font-semibold text-purple-300">${w.name}</td>
+          <td class="py-2 px-3 font-semibold text-purple-300 flex items-center gap-2">
+            <i class="fa-solid fa-wifi text-xs text-purple-400"></i> ${w.name}
+          </td>
           <td class="py-2 px-3 font-mono text-slate-300">${(w.security || '').toUpperCase()}</td>
-          <td class="py-2 px-3 font-mono text-sky-400">${w.vlan_id ? 'VLAN ' + w.vlan_id : 'Default (Untagged)'}</td>
-          <td class="py-2 px-3">${w.is_guest ? '<span class="text-amber-400">Gast</span>' : '<span class="text-slate-400">Intern</span>'}</td>
+          <td class="py-2 px-3 font-mono text-sky-400 font-semibold">${w.vlan_id ? 'VLAN ' + w.vlan_id : 'Default (Untagged)'}</td>
+          <td class="py-2 px-3">${w.is_guest ? '<span class="text-amber-400 font-medium">Gast</span>' : '<span class="text-slate-400">Intern</span>'}</td>
+          <td class="py-2 px-3 text-right whitespace-nowrap">
+            <button onclick="openEditWlanModal(${idx})" class="px-2.5 py-1 rounded bg-purple-950 hover:bg-purple-900 border border-purple-800 text-purple-300 text-xs font-medium inline-flex items-center gap-1 transition" title="WLAN & VLAN anpassen">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+            <button onclick="deleteWlan(${idx})" class="px-2 py-1 rounded bg-slate-800 hover:bg-red-950 border border-slate-700 hover:border-red-800 text-slate-400 hover:text-red-300 text-xs inline-flex items-center transition ml-1" title="WLAN löschen">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </td>
         </tr>
       `).join('');
 
