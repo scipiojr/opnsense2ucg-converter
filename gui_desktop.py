@@ -179,14 +179,41 @@ class DesktopMigratorApp(tk.Tk):
     def _build_unifi_tab(self):
         frame = self.tab_unifi
 
-        top = ttk.Frame(frame, padding=10)
+        top = ttk.Frame(frame, padding=5)
         top.pack(fill=tk.X)
 
         btn_exp = ttk.Button(top, text="Als unifi_config.json exportieren", command=self.export_unifi_json)
         btn_exp.pack(side=tk.LEFT, padx=5)
 
-        self.unifi_text = tk.Text(frame, wrap=tk.NONE, font=("Consolas", 9), padx=10, pady=10)
-        self.unifi_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        btn_toggle = ttk.Button(top, text="Status umschalten (Übernehmen / Verwerfen)", command=self.toggle_selected_rule)
+        btn_toggle.pack(side=tk.LEFT, padx=5)
+
+        lbl = ttk.Label(top, text="Tipp: Wählen Sie eine Regel aus und klicken Sie auf 'Status umschalten'.", font=("Segoe UI", 8, "italic"))
+        lbl.pack(side=tk.RIGHT, padx=5)
+
+        # Interactive rules Treeview
+        tree_f = ttk.Frame(frame, padding=5)
+        tree_f.pack(fill=tk.BOTH, expand=True, padx=5, pady=2)
+
+        self.rules_tree = ttk.Treeview(tree_f, columns=("status", "idx", "ruleset", "action", "name"), show="headings", height=9)
+        self.rules_tree.heading("status", text="Status")
+        self.rules_tree.heading("idx", text="Index")
+        self.rules_tree.heading("ruleset", text="Ruleset")
+        self.rules_tree.heading("action", text="Aktion")
+        self.rules_tree.heading("name", text="Regelname & Beschreibung")
+        self.rules_tree.column("status", width=110)
+        self.rules_tree.column("idx", width=60)
+        self.rules_tree.column("ruleset", width=90)
+        self.rules_tree.column("action", width=80)
+        self.rules_tree.column("name", width=500)
+
+        scrollbar = ttk.Scrollbar(tree_f, orient=tk.VERTICAL, command=self.rules_tree.scroll)
+        self.rules_tree.configure(yscroll=scrollbar.set)
+        self.rules_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.unifi_text = tk.Text(frame, wrap=tk.NONE, font=("Consolas", 8), padx=5, pady=5, height=7)
+        self.unifi_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=2)
 
     def _build_omitted_tab(self):
         frame = self.tab_omitted
@@ -315,12 +342,40 @@ class DesktopMigratorApp(tk.Tk):
             self.clipboard_append(prompt)
             messagebox.showinfo("Kopiert", "Prompt wurde in die Zwischenablage kopiert.")
 
+    def toggle_selected_rule(self):
+        selected = self.rules_tree.selection()
+        if not selected or not self.unifi_cfg:
+            messagebox.showinfo("Auswahl", "Bitte wählen Sie zuerst eine Regel in der Tabelle aus.")
+            return
+        item = self.rules_tree.item(selected[0])
+        idx = int(item["values"][1])
+        for r in self.unifi_cfg.firewall_rules:
+            if r.rule_index == idx:
+                curr = getattr(r, "status", "accepted")
+                r.status = "discarded" if curr != "discarded" else "accepted"
+                r.enabled = (r.status != "discarded")
+                break
+        self._update_unifi_view()
+
     def _update_unifi_view(self):
         if not self.unifi_cfg:
             return
+
+        # Populate rules tree
+        for row in self.rules_tree.get_children():
+            self.rules_tree.delete(row)
+
+        for r in self.unifi_cfg.firewall_rules:
+            stat = getattr(r, "status", "accepted")
+            stat_str = "VERWORFEN" if stat == "discarded" else ("ANGEPASST" if stat == "modified" else "ÜBERNOMMEN")
+            self.rules_tree.insert("", tk.END, values=(stat_str, r.rule_index, r.ruleset, r.action.upper(), f"{r.name} ({r.description or ''})"))
+
         data = {
             "networks": [{"name": n.name, "vlan": n.vlan_id, "cidr": n.gateway_cidr} for n in self.unifi_cfg.networks],
-            "firewall_rules": [{"index": r.rule_index, "ruleset": r.ruleset, "action": r.action, "name": r.name} for r in self.unifi_cfg.firewall_rules],
+            "firewall_rules": [
+                {"index": r.rule_index, "ruleset": r.ruleset, "action": r.action, "name": r.name, "status": getattr(r, "status", "accepted")}
+                for r in self.unifi_cfg.firewall_rules
+            ],
             "fixed_ips": [{"mac": f.mac, "ip": f.fixed_ip, "name": f.name} for f in self.unifi_cfg.fixed_ips],
         }
         self.unifi_text.delete("1.0", tk.END)

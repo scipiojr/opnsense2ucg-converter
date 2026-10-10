@@ -16,6 +16,7 @@ Das Tool überbrückt die konzeptionellen Paradigmenwechsel zwischen FreeBSD/pf 
 - [Architektur & Migrationsablauf](#-architektur--migrationsablauf)
 - [Konzeptionelle Unterschiede (OPNsense vs. UniFi)](#-konzeptionelle-unterschiede-opnsense-vs-unifi)
 - [Datenschutz-Tresor & LLM-Sanitization](#-datenschutz-tresor--llm-sanitization)
+- [Interaktiver Regel-Editor & KI-Assistent](#-interaktiver-regel-editor--ki-assistent)
 - [Hardware- & Switch-Migrationsplan](#-hardware---switch-migrationsplan)
   - [Ziel-Netzwerktopologie](#ziel-netzwerktopologie)
   - [Port-Profile Best Practices](#port-profile-best-practices)
@@ -105,6 +106,25 @@ Wenn komplexe Regelwerke durch ein KI-Modell (z.B. Anthropic Claude 3.7 Sonnet o
 3. **Zwei Betriebsmodi:**
    - **Direkte API:** Ausführung mit eigenem API-Key für Gemini oder Claude.
    - **Offline / Web-Chat Modus:** Generiert einen fertig formatierten Prompt zum Kopieren in ChatGPT / Claude / Gemini Web inklusive 1-Klick-Rückimport der JSON-Antwort.
+
+---
+
+## 📋 Interaktiver Regel-Editor & KI-Assistent pro Firewall-Regel
+
+Sowohl im Web-Dashboard (Tab 4) als auch in der Desktop-GUI bietet die Suite eine vollständige, interaktive **Listenansicht jeder einzelnen Firewall-Regel**:
+
+* **Individuelle Übernahme oder Verwerfung:**
+  - Jede Regel kann per 1-Klick-Checkbox/Toggle **übernommen** (grün) oder **verworfen** (durchgestrichen) werden.
+  - Verworfene Regeln werden beim Dry-Run und beim Live-Deployment auf dem UCG-Max garantiert ignoriert und nicht angelegt.
+  - Schnelle Filterleiste nach Status (*Alle*, *Übernommen*, *Verworfen*, *Angepasst*) und Ruleset (*LAN_IN*, *WAN_OUT*, *LAN_LOCAL*, *WAN_IN*, *LAN_OUT*).
+* **Manuelle Anpassung:**
+  - Über das Stift-Icon lässt sich jede Regel granular anpassen: Name, Zone/Ruleset, Quell-/Ziel-IP, Ports, Protokoll, Logging und Beschreibung.
+* **KI-Helfer (LLM-Assistent auf Knopfdruck):**
+  - Jede Regel verfügt über einen integrierten KI-Helfer-Button.
+  - **1-Klick-Vorlagen:** Sicherheitsprüfung & Risikobewertung, Härtung nach dem Least-Privilege-Prinzip, Beschränkung auf Standard-Webdienste (TCP 80/443), Umwandlung in Drop-Regeln mit Logging.
+  - **Freitext-Anweisungen:** Geben Sie eigene Anweisungen ein, z.B.: *"Erlaube diese Regel nur für das Server-VLAN auf Port 8123"*.
+  - **Lokaler Offline-Modus & Cloud-APIs:** Funktioniert standardmäßig 100% offline über eine integrierte Heuristik oder online über Ihre Google Gemini / Anthropic Claude API-Keys.
+  - **1-Klick-Übernahme:** Der von der KI generierte Vorschlag kann nach Prüfung des Vorher/Nachher-Diffs sofort mit einem Klick in das aktive Regelwerk übernommen werden.
 
 ---
 

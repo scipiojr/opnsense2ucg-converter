@@ -238,6 +238,7 @@ class UniFiMapper:
                 state_established=True,
                 state_related=True,
                 logging=False,
+                origin="UniFi Core / State Engine",
                 description="Crucial foundation rule in UniFi: allows return traffic for established connections",
             )
         )
@@ -254,6 +255,7 @@ class UniFiMapper:
                 rule_index=rule_idx,
                 state_invalid=True,
                 logging=False,
+                origin="UniFi Core / State Engine",
                 description="Drops malformed or out-of-order packets",
             )
         )
@@ -316,6 +318,7 @@ class UniFiMapper:
                     dst_address=dst_addr,
                     dst_port=dst_port,
                     logging=opn_rule.log,
+                    origin="OPNsense Floating Rule" if opn_rule.is_floating else "OPNsense Filter Rule",
                     description=f"OPNsense interface: {opn_rule.interface}{floating_note}, Dir: {opn_rule.direction}. {opn_rule.descr}",
                 )
             )
@@ -334,6 +337,7 @@ class UniFiMapper:
                 rule_index=rule_idx,
                 protocol="tcp_udp",
                 dst_port="53",
+                origin="Gateway Service (LAN_LOCAL)",
                 description="Allows internal clients to resolve DNS queries via UCG-Max",
             )
         )
@@ -347,6 +351,7 @@ class UniFiMapper:
                 rule_index=rule_idx,
                 protocol="udp",
                 dst_port="67",
+                origin="Gateway Service (LAN_LOCAL)",
                 description="Allows DHCP broadcast requests to reach UCG-Max DHCP daemon",
             )
         )
@@ -363,6 +368,7 @@ class UniFiMapper:
                 src_firewall_group_names=[self.rfc1918_group_name],
                 dst_port="22,80,443",
                 logging=True,
+                origin="Gateway Härtung (LAN_LOCAL)",
                 description="Prevents untrusted VLANs (IoT, Cameras, Guests) from accessing UCG-Max Admin UI/SSH",
             )
         )
@@ -394,6 +400,7 @@ class UniFiMapper:
                         src_address=f"{iface.ipaddr}/{iface.subnet}" if iface.subnet else iface.ipaddr,
                         dst_address=None,
                         logging=True,
+                        origin="Default-Deny (Internet-Isolation)",
                         description=f"In OPNsense, {iface.id} had no pass rule to 'any'. Emulates OPNsense default-deny for Internet.",
                     )
                 )
@@ -414,6 +421,7 @@ class UniFiMapper:
                     src_firewall_group_names=[self.rfc1918_group_name],
                     dst_firewall_group_names=[self.rfc1918_group_name],
                     logging=True,
+                    origin="Default-Deny (Inter-VLAN Parität)",
                     description=(
                         "CRITICAL SECURITY RULE: UniFi defaults to allowing all inter-VLAN routing! "
                         "This rule restores OPNsense's default-deny isolation between private subnets."

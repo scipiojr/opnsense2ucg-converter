@@ -414,25 +414,82 @@
         </div>
       </div>
 
-      <!-- Firewall Rules Table -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <h3 class="text-sm font-semibold mb-3 flex items-center gap-2 text-red-400">
-          <i class="fa-solid fa-shield"></i> UniFi Firewall-Regeln (LAN_IN / WAN_IN)
-        </h3>
-        <div class="overflow-x-auto">
+      <!-- Firewall Rules List & Interactive Editor -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <!-- Title & Counter Pills -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-semibold flex items-center gap-2 text-red-400">
+              <i class="fa-solid fa-shield-halved"></i> Firewall-Regeln: Interaktive Listenansicht &amp; Regel-Editor
+            </h3>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Jede Regel kann einzeln geprüft, übernommen, verworfen, angepasst oder mit dem <strong>KI-Helfer</strong> optimiert werden.
+            </p>
+          </div>
+          <!-- Quick Status Counter Pills -->
+          <div class="flex items-center gap-2 text-xs flex-wrap">
+            <span class="px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 font-medium">Gesamt: <strong id="rule-count-total">0</strong></span>
+            <span class="px-2.5 py-1 rounded-full bg-emerald-950/70 text-emerald-400 border border-emerald-800 font-medium"><i class="fa-solid fa-check mr-1"></i>Übernommen: <strong id="rule-count-accepted">0</strong></span>
+            <span class="px-2.5 py-1 rounded-full bg-red-950/70 text-red-400 border border-red-800 font-medium"><i class="fa-solid fa-ban mr-1"></i>Verworfen: <strong id="rule-count-discarded">0</strong></span>
+            <span class="px-2.5 py-1 rounded-full bg-cyan-950/70 text-cyan-400 border border-cyan-800 font-medium"><i class="fa-solid fa-pen mr-1"></i>Angepasst: <strong id="rule-count-modified">0</strong></span>
+          </div>
+        </div>
+
+        <!-- Toolbar / Filters & Bulk Actions -->
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-slate-800/80">
+          <div class="flex items-center gap-2 flex-wrap text-xs">
+            <!-- Status Filter Buttons -->
+            <div class="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-800 text-xs">
+              <button onclick="setRuleFilterStatus('all')" id="rf-status-all" class="px-2.5 py-1 rounded-md bg-slate-800 text-white font-medium">Alle</button>
+              <button onclick="setRuleFilterStatus('accepted')" id="rf-status-accepted" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">Übernommen</button>
+              <button onclick="setRuleFilterStatus('discarded')" id="rf-status-discarded" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">Verworfen</button>
+              <button onclick="setRuleFilterStatus('modified')" id="rf-status-modified" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">Angepasst</button>
+            </div>
+
+            <!-- Ruleset Dropdown -->
+            <select id="rf-ruleset-select" onchange="renderFilteredRules()" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-300 text-xs focus:outline-none focus:border-sky-500">
+              <option value="all">Alle Zonen / Rulesets</option>
+              <option value="LAN_IN">LAN_IN (Inter-VLAN &amp; Egress)</option>
+              <option value="WAN_OUT">WAN_OUT (Egress-Filter)</option>
+              <option value="LAN_LOCAL">LAN_LOCAL (Gateway-Dienste)</option>
+              <option value="WAN_IN">WAN_IN (Eingehend)</option>
+              <option value="LAN_OUT">LAN_OUT (Eintritt in LAN)</option>
+            </select>
+
+            <!-- Search Field -->
+            <div class="relative">
+              <i class="fa-solid fa-search absolute left-2.5 top-2 text-slate-500 text-xs"></i>
+              <input type="text" id="rf-search-input" oninput="renderFilteredRules()" placeholder="Suchen (Name, IP, Port)..." class="bg-slate-950 border border-slate-800 rounded-lg pl-7 pr-2.5 py-1 text-slate-300 text-xs placeholder-slate-500 focus:outline-none focus:border-sky-500 w-44">
+            </div>
+          </div>
+
+          <!-- Bulk Buttons -->
+          <div class="flex items-center gap-2">
+            <button onclick="bulkSetRulesStatus('accepted')" class="px-3 py-1 bg-emerald-900/40 hover:bg-emerald-900/70 border border-emerald-700/60 text-emerald-300 rounded-lg text-xs font-medium flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-check-double"></i> Alle übernehmen
+            </button>
+            <button onclick="bulkSetRulesStatus('discarded')" class="px-3 py-1 bg-slate-800 hover:bg-red-950/60 border border-slate-700 hover:border-red-800 text-slate-300 hover:text-red-300 rounded-lg text-xs font-medium flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-ban"></i> Alle verwerfen
+            </button>
+          </div>
+        </div>
+
+        <!-- Rules Table -->
+        <div class="overflow-x-auto border border-slate-800/80 rounded-lg">
           <table class="w-full text-xs text-left">
-            <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+            <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/60">
               <tr>
-                <th class="py-2 px-3">Index</th>
-                <th class="py-2 px-3">Regelname</th>
-                <th class="py-2 px-3">Ruleset</th>
-                <th class="py-2 px-3">Aktion</th>
-                <th class="py-2 px-3">Protokoll</th>
-                <th class="py-2 px-3">Quelle / Ziel</th>
-                <th class="py-2 px-3">Beschreibung</th>
+                <th class="py-2.5 px-3 w-12 text-center">Status</th>
+                <th class="py-2.5 px-3 w-16">Index</th>
+                <th class="py-2.5 px-3 min-w-[200px]">Regel &amp; Herkunft</th>
+                <th class="py-2.5 px-3 w-24">Ruleset</th>
+                <th class="py-2.5 px-3 w-20">Aktion</th>
+                <th class="py-2.5 px-3 w-16">Proto</th>
+                <th class="py-2.5 px-3 min-w-[180px]">Quelle &rarr; Ziel (Port)</th>
+                <th class="py-2.5 px-3 w-40 text-right">Aktionen &amp; KI</th>
               </tr>
             </thead>
-            <tbody id="unifi-rules-tbody" class="divide-y divide-slate-800"></tbody>
+            <tbody id="unifi-rules-tbody" class="divide-y divide-slate-800/70"></tbody>
           </table>
         </div>
       </div>
@@ -667,6 +724,189 @@
     <span id="toast-msg">Meldung</span>
   </div>
 
+  <!-- Modal: Regel manuell anpassen -->
+  <div id="edit-rule-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <h3 class="text-sm font-semibold text-slate-100 flex items-center gap-2">
+          <i class="fa-solid fa-pen-to-square text-cyan-400"></i> Regel anpassen (Index <span id="modal-edit-index">2000</span>)
+        </h3>
+        <button onclick="closeEditRuleModal()" class="text-slate-400 hover:text-slate-200 text-lg">&times;</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">Regelname</label>
+          <input type="text" id="modal-edit-name" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500">
+        </div>
+
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="block text-slate-400 mb-1">Ruleset (Zone)</label>
+            <select id="modal-edit-ruleset" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-cyan-500">
+              <option value="LAN_IN">LAN_IN</option>
+              <option value="WAN_OUT">WAN_OUT</option>
+              <option value="LAN_LOCAL">LAN_LOCAL</option>
+              <option value="WAN_IN">WAN_IN</option>
+              <option value="LAN_OUT">LAN_OUT</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Aktion</label>
+            <select id="modal-edit-action" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-cyan-500">
+              <option value="accept">ACCEPT (Erlauben)</option>
+              <option value="drop">DROP (Verwerfen)</option>
+              <option value="reject">REJECT (Ablehnen)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Protokoll</label>
+            <select id="modal-edit-proto" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-cyan-500">
+              <option value="all">all</option>
+              <option value="tcp">tcp</option>
+              <option value="udp">udp</option>
+              <option value="tcp_udp">tcp_udp</option>
+              <option value="icmp">icmp</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 mb-1">Quell-Adresse / Subnetz</label>
+            <input type="text" id="modal-edit-src" placeholder="z.B. 192.168.1.0/24 oder any" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Ziel-Adresse / Subnetz</label>
+            <input type="text" id="modal-edit-dst" placeholder="z.B. 192.168.10.20 oder any" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 items-center">
+          <div>
+            <label class="block text-slate-400 mb-1">Ziel-Port(s)</label>
+            <input type="text" id="modal-edit-port" placeholder="z.B. 80,443 oder 53" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500">
+          </div>
+          <div class="pt-4 flex items-center gap-2">
+            <input type="checkbox" id="modal-edit-log" class="rounded bg-slate-950 border-slate-800 text-cyan-500 focus:ring-0">
+            <label for="modal-edit-log" class="text-slate-300">Syslog-Logging aktivieren</label>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 mb-1">Beschreibung / Dokumentation</label>
+          <textarea id="modal-edit-descr" rows="2" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500"></textarea>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+        <button onclick="closeEditRuleModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">Abbrechen</button>
+        <button onclick="saveEditRuleModal()" class="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center gap-1.5">
+          <i class="fa-solid fa-check"></i> Speichern &amp; Übernehmen
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: KI-Firewall-Assistent -->
+  <div id="llm-rule-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-purple-800/60 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <h3 class="text-sm font-semibold text-purple-300 flex items-center gap-2">
+          <i class="fa-solid fa-wand-magic-sparkles text-purple-400"></i> KI-Helfer: Regel analysieren &amp; anpassen
+        </h3>
+        <button onclick="closeLlmRuleModal()" class="text-slate-400 hover:text-slate-200 text-lg">&times;</button>
+      </div>
+
+      <!-- Current Rule Card -->
+      <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 text-xs space-y-1">
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-slate-200" id="llm-modal-rule-name">Regelname</span>
+          <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono" id="llm-modal-rule-index">Index 2002</span>
+        </div>
+        <div class="text-slate-400 flex items-center gap-3 font-mono text-[11px]">
+          <span>Zone: <strong id="llm-modal-rule-ruleset" class="text-sky-400">LAN_IN</strong></span>
+          <span>Aktion: <strong id="llm-modal-rule-action" class="text-emerald-400">ACCEPT</strong></span>
+          <span>Proto: <strong id="llm-modal-rule-proto" class="text-slate-300">all</strong></span>
+          <span>Port: <strong id="llm-modal-rule-port" class="text-amber-400">any</strong></span>
+        </div>
+        <div class="text-slate-400 text-[11px] font-mono truncate" id="llm-modal-rule-endpoints">
+          Quelle: any &rarr; Ziel: any
+        </div>
+      </div>
+
+      <!-- Quick Prompt Chips -->
+      <div class="space-y-1.5 text-xs">
+        <span class="text-slate-400 font-medium">1-Klick Optimierungsvorlagen:</span>
+        <div class="flex flex-wrap gap-1.5">
+          <button onclick="setLlmInstruction('Sicherheitsprüfung: Analysiere diese Regel auf Risiken und erkläre ihre Wirkung auf Deutsch.')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition">
+            🛡️ Risiken &amp; Sicherheit prüfen
+          </button>
+          <button onclick="setLlmInstruction('Least-Privilege: Schränke offene Ports und Protokolle auf das absolute Minimum ein.')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition">
+            🔒 Auf Least-Privilege härten
+          </button>
+          <button onclick="setLlmInstruction('Passe die Regel so an, dass nur Web-Dienste (TCP Port 80 und 443) erlaubt sind.')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition">
+            🌐 Nur Web (Port 80/443) erlauben
+          </button>
+          <button onclick="setLlmInstruction('Ändere die Aktion auf DROP und aktiviere Logging für diese Verbindung.')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition">
+            🚫 In Blockregel umwandeln &amp; loggen
+          </button>
+        </div>
+      </div>
+
+      <!-- Custom Instruction Input -->
+      <div class="space-y-1 text-xs">
+        <label class="block text-slate-300 font-medium">Eigene Anweisung an die KI:</label>
+        <textarea id="llm-rule-instruction" rows="2" placeholder="z.B. Erlaube diese Regel nur für den Server 192.168.10.10 oder erkläre, ob diese Regel notwendig ist..." class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500"></textarea>
+      </div>
+
+      <!-- Engine Selector & Run Button -->
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+        <div class="flex items-center gap-2 text-xs w-full sm:w-auto">
+          <select id="llm-rule-provider" onchange="toggleLlmKeyInput()" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-300 focus:outline-none focus:border-purple-500">
+            <option value="local">🤖 Lokaler KI-Assistent (Offline, kein Key)</option>
+            <option value="gemini">✨ Google Gemini (API-Key)</option>
+            <option value="claude">🔮 Anthropic Claude (API-Key)</option>
+          </select>
+          <input type="password" id="llm-rule-key" placeholder="API Key" class="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-slate-300 w-32 hidden">
+        </div>
+        <button id="btn-run-llm-rule" onclick="runLlmRuleAssist()" class="px-4 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-purple-900/30 w-full sm:w-auto justify-center transition">
+          <i class="fa-solid fa-bolt"></i> KI-Analyse ausführen
+        </button>
+      </div>
+
+      <!-- Result Container (Initially hidden) -->
+      <div id="llm-rule-result" class="space-y-3 pt-3 border-t border-slate-800 hidden text-xs">
+        <!-- Explanation Box -->
+        <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-1.5">
+          <h4 class="font-semibold text-purple-300 flex items-center gap-1.5">
+            <i class="fa-solid fa-circle-info"></i> KI-Erklärung &amp; Bewertung:
+          </h4>
+          <p id="llm-rule-explanation" class="text-slate-300 leading-relaxed"></p>
+          <p id="llm-rule-recommendation" class="text-sky-400 font-medium pt-1"></p>
+        </div>
+
+        <!-- Proposed Diff Box -->
+        <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2">
+          <h4 class="font-semibold text-cyan-300 flex items-center gap-1.5">
+            <i class="fa-solid fa-code-compare"></i> Vorgeschlagene Regel-Anpassung:
+          </h4>
+          <div id="llm-rule-diff-table" class="font-mono text-[11px] text-slate-300 space-y-1"></div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button onclick="copyLlmRulePrompt()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1.5">
+            <i class="fa-solid fa-copy"></i> Prompt kopieren
+          </button>
+          <button onclick="applyLlmRuleSuggestion()" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-emerald-900/40">
+            <i class="fa-solid fa-check"></i> Vorschlag der KI anwenden
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     // Tab Switching
     function switchTab(tabId) {
@@ -831,6 +1071,373 @@
       renderUnifiReview(data.unifi_mapped);
     }
 
+    // -------------------------------------------------------------------------
+    // Rule List Management State & Functions
+    // -------------------------------------------------------------------------
+    let currentRules = [];
+    let currentRuleFilterStatus = 'all';
+    let currentActiveRuleForModal = null;
+    let currentLlmUpdatedRule = null;
+    let currentLlmPromptForClipboard = '';
+
+    function setRuleFilterStatus(status) {
+      currentRuleFilterStatus = status;
+      ['all', 'accepted', 'discarded', 'modified'].forEach(s => {
+        const btn = document.getElementById('rf-status-' + s);
+        if (btn) {
+          if (s === status) {
+            btn.className = 'px-2.5 py-1 rounded-md bg-slate-800 text-white font-medium';
+          } else {
+            btn.className = 'px-2.5 py-1 rounded-md text-slate-400 hover:text-white';
+          }
+        }
+      });
+      renderFilteredRules();
+    }
+
+    function renderFilteredRules() {
+      const tbody = document.getElementById('unifi-rules-tbody');
+      if (!tbody) return;
+
+      const selRuleset = document.getElementById('rf-ruleset-select')?.value || 'all';
+      const search = (document.getElementById('rf-search-input')?.value || '').toLowerCase().trim();
+
+      // Update counters
+      const total = currentRules.length;
+      const acceptedCount = currentRules.filter(r => (r.status || 'accepted') === 'accepted').length;
+      const discardedCount = currentRules.filter(r => r.status === 'discarded').length;
+      const modifiedCount = currentRules.filter(r => r.status === 'modified').length;
+
+      const elTot = document.getElementById('rule-count-total');
+      const elAcc = document.getElementById('rule-count-accepted');
+      const elDis = document.getElementById('rule-count-discarded');
+      const elMod = document.getElementById('rule-count-modified');
+      if (elTot) elTot.innerText = total;
+      if (elAcc) elAcc.innerText = acceptedCount;
+      if (elDis) elDis.innerText = discardedCount;
+      if (elMod) elMod.innerText = modifiedCount;
+
+      const filtered = currentRules.filter(r => {
+        const status = r.status || 'accepted';
+        if (currentRuleFilterStatus !== 'all' && status !== currentRuleFilterStatus) {
+          return false;
+        }
+        if (selRuleset !== 'all' && r.ruleset !== selRuleset) {
+          return false;
+        }
+        if (search) {
+          const hay = `${r.name} ${r.ruleset} ${r.action} ${r.protocol} ${r.src_addr} ${r.dst_addr} ${r.dst_port} ${r.description} ${r.origin}`.toLowerCase();
+          if (!hay.includes(search)) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-slate-500">Keine Regeln gefunden für die ausgewählten Filterkriterien.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(r => {
+        const isDiscarded = r.status === 'discarded';
+        const isModified = r.status === 'modified';
+        const rowClass = isDiscarded 
+          ? 'opacity-40 bg-slate-950/40' 
+          : (isModified ? 'bg-cyan-950/20 hover:bg-cyan-950/30' : 'hover:bg-slate-800/40');
+
+        const statusBadge = isDiscarded
+          ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-950 text-red-400 border border-red-800/70">VERWORFEN</span>'
+          : (isModified
+              ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800">ANGEPASST</span>'
+              : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800/70">ÜBERNOMMEN</span>');
+
+        const actionBadge = r.action === 'accept'
+          ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">ACCEPT</span>'
+          : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-950 text-red-400 border border-red-800">DROP</span>';
+
+        const originBadge = r.origin
+          ? `<span class="px-1.5 py-0.5 rounded text-[9px] bg-slate-800 text-slate-400 font-mono">${r.origin}</span>`
+          : '';
+
+        const srcStr = (r.src_groups && r.src_groups.length > 0) ? r.src_groups.join(',') : (r.src_addr || 'any');
+        const dstStr = (r.dst_groups && r.dst_groups.length > 0) ? r.dst_groups.join(',') : (r.dst_addr || 'any');
+        const portStr = r.dst_port ? `:${r.dst_port}` : '';
+
+        return `
+          <tr class="${rowClass} transition">
+            <td class="py-2.5 px-3 text-center">
+              <input type="checkbox" ${!isDiscarded ? 'checked' : ''} onchange="toggleRuleStatus(${r.rule_index})" title="${!isDiscarded ? 'Klicken zum Verwerfen' : 'Klicken zum Übernehmen'}" class="rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer">
+            </td>
+            <td class="py-2.5 px-3 font-mono text-slate-400 font-semibold">${r.rule_index}</td>
+            <td class="py-2.5 px-3">
+              <div class="font-medium ${isDiscarded ? 'line-through text-slate-400' : 'text-slate-200'} flex items-center gap-1.5 flex-wrap">
+                <span>${r.name}</span>
+                ${originBadge}
+                ${statusBadge}
+              </div>
+              <div class="text-[11px] text-slate-400 truncate max-w-sm mt-0.5" title="${r.description}">${r.description}</div>
+              ${r.llm_notes ? `<div class="text-[10px] text-cyan-400 font-medium mt-0.5 flex items-center gap-1"><i class="fa-solid fa-sparkles text-xs"></i> ${r.llm_notes}</div>` : ''}
+            </td>
+            <td class="py-2.5 px-3 font-mono text-xs text-sky-400 font-semibold">${r.ruleset}</td>
+            <td class="py-2.5 px-3">${actionBadge}</td>
+            <td class="py-2.5 px-3 font-mono text-slate-400 uppercase text-[11px]">${r.protocol}</td>
+            <td class="py-2.5 px-3 font-mono text-slate-300 text-[11px]">
+              <span class="text-slate-400">${srcStr}</span> &rarr; <span class="text-amber-300">${dstStr}${portStr}</span>
+            </td>
+            <td class="py-2.5 px-3 text-right space-x-1.5 whitespace-nowrap">
+              <button onclick="openEditRuleModal(${r.rule_index})" title="Regel anpassen" class="px-2 py-1 rounded bg-slate-800 hover:bg-cyan-900/40 text-slate-300 hover:text-cyan-300 border border-slate-700 hover:border-cyan-700 transition">
+                <i class="fa-solid fa-pen text-xs"></i>
+              </button>
+              <button onclick="openLlmRuleModal(${r.rule_index})" title="Mit KI optimieren / analysieren" class="px-2 py-1 rounded bg-purple-950/60 hover:bg-purple-900 text-purple-300 hover:text-purple-100 border border-purple-800 transition">
+                <i class="fa-solid fa-wand-magic-sparkles text-xs"></i> KI
+              </button>
+              <button onclick="toggleRuleStatus(${r.rule_index})" title="${!isDiscarded ? 'Regel verwerfen' : 'Regel übernehmen'}" class="px-2 py-1 rounded ${!isDiscarded ? 'bg-slate-800 hover:bg-red-950/60 text-slate-400 hover:text-red-300 border border-slate-700' : 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border border-emerald-800'} transition">
+                <i class="fa-solid ${!isDiscarded ? 'fa-ban' : 'fa-check'} text-xs"></i>
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function toggleRuleStatus(ruleIndex) {
+      const target = currentRules.find(r => r.rule_index === ruleIndex);
+      if (!target) return;
+      const newStatus = (target.status === 'discarded') ? 'accepted' : 'discarded';
+
+      try {
+        const res = await fetch('/api/rules/toggle-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rule_index: ruleIndex, status: newStatus })
+        });
+        const data = await res.json();
+        if (data.success) {
+          currentRules = data.rules;
+          renderFilteredRules();
+          showToast(newStatus === 'accepted' ? 'Regel übernommen' : 'Regel verworfen');
+        } else {
+          showToast(data.error || 'Fehler beim Umschalten', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    async function bulkSetRulesStatus(status) {
+      try {
+        const res = await fetch('/api/rules/bulk-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: status })
+        });
+        const data = await res.json();
+        if (data.success) {
+          currentRules = data.rules;
+          renderFilteredRules();
+          showToast(status === 'accepted' ? 'Alle Regeln übernommen' : 'Alle Regeln verworfen');
+        } else {
+          showToast(data.error || 'Fehler', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    function openEditRuleModal(ruleIndex) {
+      const r = currentRules.find(x => x.rule_index === ruleIndex);
+      if (!r) return;
+
+      document.getElementById('modal-edit-index').innerText = r.rule_index;
+      document.getElementById('modal-edit-name').value = r.name || '';
+      document.getElementById('modal-edit-ruleset').value = r.ruleset || 'LAN_IN';
+      document.getElementById('modal-edit-action').value = r.action || 'accept';
+      document.getElementById('modal-edit-proto').value = r.protocol || 'all';
+      document.getElementById('modal-edit-src').value = (r.src_groups && r.src_groups.length > 0) ? r.src_groups.join(',') : (r.src_addr || '');
+      document.getElementById('modal-edit-dst').value = (r.dst_groups && r.dst_groups.length > 0) ? r.dst_groups.join(',') : (r.dst_addr || '');
+      document.getElementById('modal-edit-port').value = r.dst_port || '';
+      document.getElementById('modal-edit-log').checked = !!r.logging;
+      document.getElementById('modal-edit-descr').value = r.description || '';
+
+      document.getElementById('edit-rule-modal').classList.remove('hidden');
+    }
+
+    function closeEditRuleModal() {
+      document.getElementById('edit-rule-modal').classList.add('hidden');
+    }
+
+    async function saveEditRuleModal() {
+      const index = parseInt(document.getElementById('modal-edit-index').innerText);
+      const payload = {
+        rule_index: index,
+        name: document.getElementById('modal-edit-name').value,
+        ruleset: document.getElementById('modal-edit-ruleset').value,
+        action: document.getElementById('modal-edit-action').value,
+        protocol: document.getElementById('modal-edit-proto').value,
+        src_addr: document.getElementById('modal-edit-src').value,
+        dst_addr: document.getElementById('modal-edit-dst').value,
+        dst_port: document.getElementById('modal-edit-port').value,
+        logging: document.getElementById('modal-edit-log').checked,
+        description: document.getElementById('modal-edit-descr').value
+      };
+
+      try {
+        const res = await fetch('/api/rules/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          currentRules = data.rules;
+          renderFilteredRules();
+          closeEditRuleModal();
+          showToast('Regel erfolgreich angepasst!');
+        } else {
+          showToast(data.error || 'Fehler beim Speichern', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    function openLlmRuleModal(ruleIndex) {
+      const r = currentRules.find(x => x.rule_index === ruleIndex);
+      if (!r) return;
+      currentActiveRuleForModal = r;
+      currentLlmUpdatedRule = null;
+      currentLlmPromptForClipboard = '';
+
+      document.getElementById('llm-modal-rule-name').innerText = r.name;
+      document.getElementById('llm-modal-rule-index').innerText = 'Index ' + r.rule_index;
+      document.getElementById('llm-modal-rule-ruleset').innerText = r.ruleset;
+      document.getElementById('llm-modal-rule-action').innerText = (r.action || 'accept').toUpperCase();
+      document.getElementById('llm-modal-rule-proto').innerText = r.protocol;
+      document.getElementById('llm-modal-rule-port').innerText = r.dst_port || 'any';
+
+      const src = r.src_addr || (r.src_groups && r.src_groups.join(',')) || 'any';
+      const dst = r.dst_addr || (r.dst_groups && r.dst_groups.join(',')) || 'any';
+      document.getElementById('llm-modal-rule-endpoints').innerText = `Quelle: ${src} -> Ziel: ${dst}`;
+
+      document.getElementById('llm-rule-instruction').value = '';
+      document.getElementById('llm-rule-result').classList.add('hidden');
+      document.getElementById('llm-rule-modal').classList.remove('hidden');
+    }
+
+    function closeLlmRuleModal() {
+      document.getElementById('llm-rule-modal').classList.add('hidden');
+    }
+
+    function toggleLlmKeyInput() {
+      const prov = document.getElementById('llm-rule-provider').value;
+      const keyInput = document.getElementById('llm-rule-key');
+      if (prov === 'local') {
+        keyInput.classList.add('hidden');
+      } else {
+        keyInput.classList.remove('hidden');
+      }
+    }
+
+    function setLlmInstruction(text) {
+      document.getElementById('llm-rule-instruction').value = text;
+    }
+
+    async function runLlmRuleAssist() {
+      if (!currentActiveRuleForModal) return;
+      const btn = document.getElementById('btn-run-llm-rule');
+      const origHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> KI analysiert...';
+      btn.disabled = true;
+
+      const payload = {
+        rule_index: currentActiveRuleForModal.rule_index,
+        instruction: document.getElementById('llm-rule-instruction').value,
+        provider: document.getElementById('llm-rule-provider').value,
+        api_key: document.getElementById('llm-rule-key').value
+      };
+
+      try {
+        const res = await fetch('/api/rules/llm-assist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('llm-rule-explanation').innerText = data.explanation || 'Analyse abgeschlossen.';
+          document.getElementById('llm-rule-recommendation').innerText = data.recommendation || '';
+
+          currentLlmUpdatedRule = data.updated_rule;
+          currentLlmPromptForClipboard = data.prompt_for_clipboard || '';
+
+          // Build visual diff table
+          const diffContainer = document.getElementById('llm-rule-diff-table');
+          const oldR = currentActiveRuleForModal;
+          const newR = data.updated_rule;
+
+          let diffRows = [];
+          ['name', 'ruleset', 'action', 'protocol', 'src_addr', 'dst_addr', 'dst_port', 'logging'].forEach(field => {
+            const oldVal = String(oldR[field] !== undefined ? oldR[field] : '');
+            const newVal = String(newR[field] !== undefined ? newR[field] : '');
+            const isChanged = oldVal !== newVal;
+            diffRows.push(`
+              <div class="flex items-center justify-between py-1 px-2 rounded ${isChanged ? 'bg-cyan-950/40 border border-cyan-800/60 font-semibold text-cyan-200' : 'bg-slate-900/40 text-slate-400'}">
+                <span class="w-24 text-[10px] uppercase">${field}:</span>
+                <span class="${isChanged ? 'line-through text-slate-500 mr-2' : ''}">${oldVal || 'none'}</span>
+                ${isChanged ? `<span class="text-cyan-300 font-bold">&rarr; ${newVal || 'none'}</span>` : ''}
+              </div>
+            `);
+          });
+          diffContainer.innerHTML = diffRows.join('');
+
+          document.getElementById('llm-rule-result').classList.remove('hidden');
+          showToast('KI-Analyse erfolgreich generiert!');
+        } else {
+          showToast(data.error || 'Fehler bei der KI-Analyse', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      } finally {
+        btn.innerHTML = origHtml;
+        btn.disabled = false;
+      }
+    }
+
+    async function applyLlmRuleSuggestion() {
+      if (!currentActiveRuleForModal || !currentLlmUpdatedRule) return;
+
+      try {
+        const res = await fetch('/api/rules/apply-llm-suggestion', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rule_index: currentActiveRuleForModal.rule_index,
+            updated_rule: currentLlmUpdatedRule,
+            explanation: document.getElementById('llm-rule-explanation').innerText
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          currentRules = data.rules;
+          renderFilteredRules();
+          closeLlmRuleModal();
+          showToast('Vorschlag der KI erfolgreich angewendet!');
+        } else {
+          showToast(data.error || 'Fehler beim Anwenden', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    function copyLlmRulePrompt() {
+      if (currentLlmPromptForClipboard) {
+        navigator.clipboard.writeText(currentLlmPromptForClipboard);
+        showToast('Prompt in Zwischenablage kopiert!');
+      } else {
+        showToast('Kein Prompt vorhanden', true);
+      }
+    }
+
     function renderUnifiReview(u) {
       if (!u) return;
 
@@ -847,18 +1454,8 @@
       `).join('');
 
       // Rules
-      const rulesTbody = document.getElementById('unifi-rules-tbody');
-      rulesTbody.innerHTML = u.firewall_rules.map(r => `
-        <tr class="hover:bg-slate-800/40">
-          <td class="py-2 px-3 font-mono text-slate-400">${r.rule_index}</td>
-          <td class="py-2 px-3 font-medium text-slate-200">${r.name}</td>
-          <td class="py-2 px-3 font-mono text-xs text-sky-400">${r.ruleset}</td>
-          <td class="py-2 px-3"><span class="px-2 py-0.5 rounded text-xs ${r.action === 'accept' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-red-950 text-red-400 border border-red-800'}">${r.action.toUpperCase()}</span></td>
-          <td class="py-2 px-3 font-mono text-slate-400">${r.protocol}</td>
-          <td class="py-2 px-3 text-slate-400">${r.src_groups.join(',') || r.src_addr || 'any'} &rarr; ${r.dst_groups.join(',') || r.dst_addr || 'any'}</td>
-          <td class="py-2 px-3 text-slate-500 max-w-xs truncate">${r.description}</td>
-        </tr>
-      `).join('');
+      currentRules = u.firewall_rules || [];
+      renderFilteredRules();
 
       // Groups
       const groupsTbody = document.getElementById('unifi-groups-tbody');

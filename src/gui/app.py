@@ -181,6 +181,10 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "dst_port": r.dst_port or "",
                 "logging": r.logging,
                 "description": r.description,
+                "status": getattr(r, "status", "accepted"),
+                "origin": getattr(r, "origin", "OPNsense"),
+                "llm_notes": getattr(r, "llm_notes", ""),
+                "enabled": r.enabled,
             }
             for r in state.unifi_cfg.firewall_rules
         ],
@@ -416,6 +420,166 @@ async def export_json_api(request: Request) -> JSONResponse:
     return JSONResponse(cfg_dict, headers={"Content-Disposition": "attachment; filename=unifi_ucg_max_config.json"})
 
 
+async def toggle_rule_status_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "No UniFi config ready"}, status_code=400)
+        body = await request.json()
+        rule_index = body.get("rule_index")
+        new_status = body.get("status")  # "accepted" or "discarded"
+
+        found = False
+        for r in state.unifi_cfg.firewall_rules:
+            if r.rule_index == rule_index:
+                r.status = new_status
+                r.enabled = (new_status != "discarded")
+                found = True
+                break
+
+        if not found:
+            return JSONResponse({"success": False, "error": f"Rule with index {rule_index} not found"}, status_code=404)
+
+        return JSONResponse({"success": True, "rule_index": rule_index, "status": new_status, "rules": get_unifi_config_dict()["firewall_rules"]})
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+async def update_rule_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "No UniFi config ready"}, status_code=400)
+        body = await request.json()
+        rule_index = body.get("rule_index")
+
+        for r in state.unifi_cfg.firewall_rules:
+            if r.rule_index == rule_index:
+                if "name" in body:
+                    r.name = body["name"]
+                if "ruleset" in body:
+                    r.ruleset = body["ruleset"]
+                if "action" in body:
+                    r.action = body["action"]
+                if "protocol" in body:
+                    r.protocol = body["protocol"]
+                if "src_addr" in body:
+                    r.src_address = body["src_addr"] or None
+                if "dst_addr" in body:
+                    r.dst_address = body["dst_addr"] or None
+                if "dst_port" in body:
+                    r.dst_port = str(body["dst_port"]) or None
+                if "logging" in body:
+                    r.logging = bool(body["logging"])
+                if "description" in body:
+                    r.description = body["description"]
+                r.status = "modified"
+                r.enabled = True
+                return JSONResponse({"success": True, "rules": get_unifi_config_dict()["firewall_rules"]})
+
+        return JSONResponse({"success": False, "error": f"Rule with index {rule_index} not found"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+async def bulk_rule_status_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "No UniFi config ready"}, status_code=400)
+        body = await request.json()
+        new_status = body.get("status", "accepted")
+        indices = body.get("indices", None)
+
+        for r in state.unifi_cfg.firewall_rules:
+            if indices is None or r.rule_index in indices:
+                r.status = new_status
+                r.enabled = (new_status != "discarded")
+
+        return JSONResponse({"success": True, "status": new_status, "rules": get_unifi_config_dict()["firewall_rules"]})
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+async def llm_assist_rule_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "No UniFi config ready"}, status_code=400)
+        body = await request.json()
+        rule_index = body.get("rule_index")
+        instruction = body.get("instruction", "")
+        provider = body.get("provider", "local")
+        api_key = body.get("api_key", "")
+        model = body.get("model", "")
+
+        target_rule = next((r for r in state.unifi_cfg.firewall_rules if r.rule_index == rule_index), None)
+        if not target_rule:
+            return JSONResponse({"success": False, "error": f"Rule with index {rule_index} not found"}, status_code=404)
+
+        rule_dict = {
+            "rule_index": target_rule.rule_index,
+            "name": target_rule.name,
+            "ruleset": target_rule.ruleset,
+            "action": target_rule.action,
+            "protocol": target_rule.protocol,
+            "src_addr": target_rule.src_address or "",
+            "dst_addr": target_rule.dst_address or "",
+            "dst_port": target_rule.dst_port or "",
+            "logging": target_rule.logging,
+            "description": target_rule.description,
+            "origin": getattr(target_rule, "origin", "OPNsense"),
+        }
+
+        engine = LLMTranslationEngine(state.vault)
+        result = engine.assist_single_rule(
+            rule_data=rule_dict,
+            instruction=instruction,
+            provider=provider,
+            api_key=api_key,
+            model=model,
+        )
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+async def apply_llm_suggestion_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "No UniFi config ready"}, status_code=400)
+        body = await request.json()
+        rule_index = body.get("rule_index")
+        updated = body.get("updated_rule", {})
+        explanation = body.get("explanation", "")
+
+        for r in state.unifi_cfg.firewall_rules:
+            if r.rule_index == rule_index:
+                if "name" in updated:
+                    r.name = updated["name"]
+                if "ruleset" in updated:
+                    r.ruleset = updated["ruleset"]
+                if "action" in updated:
+                    r.action = updated["action"]
+                if "protocol" in updated:
+                    r.protocol = updated["protocol"]
+                if "src_addr" in updated:
+                    r.src_address = updated["src_addr"] or None
+                if "dst_addr" in updated:
+                    r.dst_address = updated["dst_addr"] or None
+                if "dst_port" in updated:
+                    r.dst_port = str(updated["dst_port"]) or None
+                if "logging" in updated:
+                    r.logging = bool(updated["logging"])
+                if "description" in updated:
+                    r.description = updated["description"]
+                r.status = "modified"
+                r.enabled = True
+                if explanation:
+                    r.llm_notes = explanation
+                return JSONResponse({"success": True, "rules": get_unifi_config_dict()["firewall_rules"]})
+
+        return JSONResponse({"success": False, "error": f"Rule with index {rule_index} not found"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
 routes = [
     Route("/", endpoint=index_view, methods=["GET"]),
     Route("/api/load-sample", endpoint=load_sample_api, methods=["POST"]),
@@ -428,6 +592,11 @@ routes = [
     Route("/api/dry-run", endpoint=dry_run_api, methods=["POST"]),
     Route("/api/deploy", endpoint=deploy_api, methods=["POST"]),
     Route("/api/export-unifi-json", endpoint=export_json_api, methods=["GET"]),
+    Route("/api/rules/toggle-status", endpoint=toggle_rule_status_api, methods=["POST"]),
+    Route("/api/rules/update", endpoint=update_rule_api, methods=["POST"]),
+    Route("/api/rules/bulk-status", endpoint=bulk_rule_status_api, methods=["POST"]),
+    Route("/api/rules/llm-assist", endpoint=llm_assist_rule_api, methods=["POST"]),
+    Route("/api/rules/apply-llm-suggestion", endpoint=apply_llm_suggestion_api, methods=["POST"]),
 ]
 
 app = Starlette(debug=True, routes=routes)

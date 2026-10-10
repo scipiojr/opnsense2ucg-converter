@@ -62,8 +62,42 @@ def test_core_flow():
     assert len(report["networks_to_create"]) == 5
     assert len(report["fixed_ips_to_assign"]) == 8
     assert len(report["omitted_items"]) >= 2
+    initial_rule_count = len(report["firewall_rules_to_create"])
 
-    print("SUCCESS: Core workflow and state tests passed cleanly!")
+    # 6. Test Single Rule LLM Assist & Adaptation
+    sample_rule = state.unifi_cfg.firewall_rules[2]
+    rule_dict = {
+        "rule_index": sample_rule.rule_index,
+        "name": sample_rule.name,
+        "ruleset": sample_rule.ruleset,
+        "action": sample_rule.action,
+        "protocol": sample_rule.protocol,
+        "src_addr": sample_rule.src_address,
+        "dst_addr": sample_rule.dst_address,
+        "dst_port": sample_rule.dst_port,
+    }
+    llm_res = engine.assist_single_rule(
+        rule_data=rule_dict,
+        instruction="Schränke diese Regel auf Web-Traffic TCP Port 80 und 443 ein",
+        provider="local",
+    )
+    assert llm_res["success"] is True
+    assert llm_res["updated_rule"]["dst_port"] == "80,443"
+    assert "explanation" in llm_res
+
+    # Apply adaptation
+    sample_rule.dst_port = "80,443"
+    sample_rule.status = "modified"
+
+    # 7. Test Discarding a Rule
+    discard_target = state.unifi_cfg.firewall_rules[0]
+    discard_target.status = "discarded"
+    discard_target.enabled = False
+
+    report_after_discard = client.dry_run(state.unifi_cfg)
+    assert len(report_after_discard["firewall_rules_to_create"]) == initial_rule_count - 1
+
+    print("SUCCESS: Core workflow, state tests, and interactive rule management tests passed cleanly!")
 
 
 if __name__ == "__main__":

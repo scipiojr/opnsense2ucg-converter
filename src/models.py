@@ -210,6 +210,9 @@ class UniFiFirewallRule:
     state_invalid: bool = False
     logging: bool = False
     description: str = ""
+    status: str = "accepted"         # "accepted", "discarded", "modified"
+    origin: str = "OPNsense"         # "OPNsense", "Floating Rule", "Default-Deny Protection", etc.
+    llm_notes: str = ""
 
 
 @dataclass

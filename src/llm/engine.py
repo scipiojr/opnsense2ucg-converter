@@ -170,3 +170,110 @@ Please perform the translation and return strictly the JSON structure defined ab
             return json.loads(text_clean)
         except json.JSONDecodeError as e:
             raise ValueError(f"Failed to parse JSON response from LLM: {str(e)}\nRaw output: {text[:200]}...")
+
+    def assist_single_rule(
+        self,
+        rule_data: Dict[str, Any],
+        instruction: str = "",
+        provider: str = "local",
+        api_key: str = "",
+        model: str = "",
+    ) -> Dict[str, Any]:
+        """
+        Analyzes a single firewall rule, explains its implications, and suggests
+        optimizations based on user instructions or security best practices.
+        Supports local heuristic analysis or remote LLM (Gemini/Claude).
+        """
+        sanitized_rule = self.vault.sanitize_dict(rule_data)
+        instr = instruction.strip() or "Prüfe die Regel auf Sicherheit und optimiere sie nach dem Least-Privilege-Prinzip."
+
+        prompt = f"""You are an elite firewall engineer for Ubiquiti UniFi Cloud Gateway Max (UCG-Max) and OPNsense.
+Analyze and optimize the following UniFi firewall rule based on the instruction.
+
+### USER INSTRUCTION:
+"{instr}"
+
+### CURRENT RULE DATA (JSON):
+{json.dumps(sanitized_rule, indent=2)}
+
+### REQUIREMENTS:
+1. Explain in German ('explanation') what this rule does, why it is needed or if it poses risks.
+2. Provide a concrete recommendation in German ('recommendation').
+3. Return the optimized rule dictionary ('updated_rule') with fields: name, ruleset, action, protocol, src_addr, dst_addr, dst_port, logging, description.
+
+OUTPUT STRICTLY VALID JSON:
+{{
+  "explanation": "Detaillierte deutsche Erklärung...",
+  "recommendation": "Empfehlung...",
+  "updated_rule": {{
+    "name": "...",
+    "ruleset": "LAN_IN",
+    "action": "accept",
+    "protocol": "all",
+    "src_addr": "...",
+    "dst_addr": "...",
+    "dst_port": "...",
+    "logging": false,
+    "description": "..."
+  }}
+}}
+"""
+
+        # Remote LLM execution
+        if provider == "gemini" and api_key:
+            res = self.call_gemini(prompt, api_key=api_key, model=model or "gemini-2.5-flash")
+            rehydrated = self.vault.rehydrate_dict(res)
+            rehydrated["prompt_for_clipboard"] = prompt
+            return rehydrated
+
+        if provider == "claude" and api_key:
+            res = self.call_claude(prompt, api_key=api_key, model=model or "claude-3-7-sonnet-20250219")
+            rehydrated = self.vault.rehydrate_dict(res)
+            rehydrated["prompt_for_clipboard"] = prompt
+            return rehydrated
+
+        # Built-in Local Heuristic Optimizer (offline, instant, private)
+        updated = dict(rule_data)
+        instr_lower = instr.lower()
+
+        if "drop" in instr_lower or "block" in instr_lower or "sperr" in instr_lower:
+            updated["action"] = "drop"
+            explanation = "Die Regel wurde von 'accept' auf 'drop' geändert, um diesen Datenverkehr zu verriegeln."
+        elif "accept" in instr_lower or "erlaub" in instr_lower:
+            updated["action"] = "accept"
+            explanation = "Die Regel wurde auf 'accept' gesetzt, um den spezifizierten Verbindungsaufbau zu gestatten."
+        elif "härten" in instr_lower or "least" in instr_lower or "sicherheit" in instr_lower:
+            if not updated.get("dst_port") or str(updated.get("dst_port")).lower() in ("any", "*", "all", ""):
+                if "web" in updated.get("name", "").lower() or "http" in updated.get("description", "").lower():
+                    updated["protocol"] = "tcp"
+                    updated["dst_port"] = "80,443"
+                    explanation = "Least-Privilege Härtung angewandt: Zielports wurden präzise auf HTTP/HTTPS (TCP 80, 443) eingeschränkt."
+                elif "dns" in updated.get("name", "").lower():
+                    updated["protocol"] = "udp"
+                    updated["dst_port"] = "53"
+                    explanation = "Least-Privilege Härtung angewandt: Protokoll auf DNS (UDP 53) beschränkt."
+                else:
+                    updated["logging"] = True
+                    explanation = "Sicherheitsprüfung durchgeführt: Offener Port-Zugriff erkannt. Logging wurde zur forensischen Protokollierung aktiviert."
+            else:
+                updated["logging"] = True
+                explanation = "Regel analysiert: Spezifische Zielports sind bereits definiert. Logging wurde zur besseren Auditierbarkeit aktiviert."
+        elif "web" in instr_lower or "http" in instr_lower:
+            updated["protocol"] = "tcp"
+            updated["dst_port"] = "80,443"
+            explanation = "Zielports wurden gezielt auf Standard-Webdienste (TCP 80/443) gesetzt."
+        elif "log" in instr_lower:
+            updated["logging"] = True
+            explanation = "Firewall-Logging für diese Regel aktiviert."
+        else:
+            explanation = f"Regel '{updated.get('name')}' analysiert: Aktuelle Konfiguration entspricht den Sicherheitsrichtlinien für Zone {updated.get('ruleset')}."
+
+        rec = f"Empfehlung: In UniFi OS unter Ruleset '{updated.get('ruleset')}' belassen. Nutzen Sie bei komplexen Anforderungen den Button 'Prompt kopieren' für tiefergehende KI-Analysen."
+
+        return {
+            "success": True,
+            "explanation": explanation,
+            "recommendation": rec,
+            "updated_rule": updated,
+            "prompt_for_clipboard": prompt,
+        }

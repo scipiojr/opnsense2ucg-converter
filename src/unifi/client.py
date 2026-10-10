@@ -158,6 +158,8 @@ class UniFiGatewayClient:
 
         # Check rules
         for rule in target_config.firewall_rules:
+            if not rule.enabled or getattr(rule, "status", "accepted") == "discarded":
+                continue
             report["firewall_rules_to_create"].append({
                 "index": rule.rule_index,
                 "ruleset": rule.ruleset,
@@ -235,6 +237,8 @@ class UniFiGatewayClient:
 
         # Step 3: Create Firewall Rules
         for rule in target_config.firewall_rules:
+            if not rule.enabled or getattr(rule, "status", "accepted") == "discarded":
+                continue
             try:
                 self._create_firewall_rule(rule, group_id_map)
                 results["created_rules"] += 1
