@@ -73,6 +73,7 @@ class OPNsenseFilterRule:
     enabled: bool = True
     log: bool = False
     is_quick: bool = True
+    is_floating: bool = False
     src_inverted: bool = False
     dst_inverted: bool = False
 

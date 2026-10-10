@@ -267,9 +267,22 @@ class UniFiMapper:
                 continue
 
             # Determine UniFi ruleset:
-            # - Rules on 'wan' go to WAN_IN (or WAN_LOCAL if destination is gateway)
-            # - Rules on LAN/VLAN interfaces go to LAN_IN (or LAN_LOCAL if dst is gateway/dns)
-            if opn_rule.interface.lower() == "wan":
+            if opn_rule.is_floating:
+                # Floating Rules apply cross-interface based on traffic direction:
+                if opn_rule.direction.lower() == "out":
+                    if any(w in opn_rule.interface.lower() for w in ["wan", "any", "all"]):
+                        ruleset = "WAN_OUT"
+                    else:
+                        ruleset = "LAN_OUT"
+                elif opn_rule.direction.lower() == "in":
+                    if "wan" in opn_rule.interface.lower():
+                        ruleset = "WAN_IN"
+                    else:
+                        # In UniFi, LAN_IN applies globally to all internal networks
+                        ruleset = "LAN_IN"
+                else:  # direction == "any"
+                    ruleset = "LAN_IN"
+            elif opn_rule.interface.lower() == "wan":
                 ruleset = "WAN_IN"
             else:
                 ruleset = "LAN_IN"
@@ -285,7 +298,9 @@ class UniFiMapper:
             dst_addr = opn_rule.dst if not dst_groups and opn_rule.dst != "any" else None
             dst_port = opn_rule.dst_port if opn_rule.dst_port != "any" else None
 
-            rule_name = opn_rule.descr or f"Migrated-{opn_rule.interface}-{opn_rule.id}"
+            prefix = "[Floating] " if opn_rule.is_floating else ""
+            rule_name = f"{prefix}{opn_rule.descr}" if opn_rule.descr else f"{prefix}Migrated-{opn_rule.interface}-{opn_rule.id}"
+            floating_note = " (Floating Rule)" if opn_rule.is_floating else ""
 
             rules.append(
                 UniFiFirewallRule(
@@ -301,7 +316,7 @@ class UniFiMapper:
                     dst_address=dst_addr,
                     dst_port=dst_port,
                     logging=opn_rule.log,
-                    description=f"OPNsense source interface: {opn_rule.interface}. {opn_rule.descr}",
+                    description=f"OPNsense interface: {opn_rule.interface}{floating_note}, Dir: {opn_rule.direction}. {opn_rule.descr}",
                 )
             )
             rule_idx += 1

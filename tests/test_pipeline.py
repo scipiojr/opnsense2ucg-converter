@@ -25,8 +25,10 @@ def test_parser_and_mapper():
     assert len(opn_cfg.interfaces) == 6, f"Expected 6 interfaces, got {len(opn_cfg.interfaces)}"
     assert len(opn_cfg.static_leases) == 8, f"Expected 8 leases, got {len(opn_cfg.static_leases)}"
     assert len(opn_cfg.aliases) == 5, f"Expected 5 aliases, got {len(opn_cfg.aliases)}"
-    assert len(opn_cfg.port_forwards) == 2, f"Expected 2 port forwards, got {len(opn_cfg.port_forwards)}"
-    assert len(opn_cfg.filter_rules) == 6, f"Expected 6 filter rules, got {len(opn_cfg.filter_rules)}"
+    assert len(opn_cfg.filter_rules) == 7, f"Expected 7 filter rules, got {len(opn_cfg.filter_rules)}"
+    floating_opn = next((r for r in opn_cfg.filter_rules if r.is_floating), None)
+    assert floating_opn is not None, "Floating rule should be parsed"
+    assert floating_opn.direction == "out"
     assert len(opn_cfg.omitted_items) >= 2, f"Expected at least 2 omitted items, got {len(opn_cfg.omitted_items)}"
     omitted_cats = [o.category for o in opn_cfg.omitted_items]
     assert "VPN" in omitted_cats
@@ -72,6 +74,13 @@ def test_parser_and_mapper():
     assert inter_vlan_rule is not None
     assert inter_vlan_rule.action == "drop"
     assert inter_vlan_rule.ruleset == "LAN_IN"
+
+    # Check that floating rule mapped to WAN_OUT
+    floating_unifi = next((r for r in unifi_cfg.firewall_rules if "[Floating]" in r.name), None)
+    assert floating_unifi is not None, "Floating rule should map to UniFi rule"
+    assert floating_unifi.ruleset == "WAN_OUT"
+    assert floating_unifi.action == "drop"
+    assert floating_unifi.dst_port == "25"
 
     print("SUCCESS: All unit tests passed!")
 

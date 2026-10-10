@@ -282,8 +282,11 @@ class OPNsenseParser:
         rule_nodes = self.root.findall(".//filter/rule")
         
         for idx, rule in enumerate(rule_nodes):
+            floating_val = self._get_text(rule, "floating")
+            is_floating = floating_val.lower() in ("yes", "1", "true") or rule.find("floating") is not None
             action = self._get_text(rule, "type") or "pass"
-            interface = self._get_text(rule, "interface") or "lan"
+            raw_interface = self._get_text(rule, "interface")
+            interface = raw_interface if raw_interface else ("any" if is_floating else "lan")
             direction = self._get_text(rule, "direction") or "in"
             protocol = self._get_text(rule, "protocol") or "any"
             descr = self._get_text(rule, "descr")
@@ -334,6 +337,7 @@ class OPNsenseParser:
                     enabled=not disabled,
                     log=log,
                     is_quick=quick,
+                    is_floating=is_floating,
                     src_inverted=src_inv,
                     dst_inverted=dst_inv,
                 )
@@ -415,21 +419,24 @@ class OPNsenseParser:
                 )
             )
 
-        # 2. Floating Rules with bidirection/raw pf specifics
+        # 2. Floating Rules with non-standard pf evaluation (non-quick)
         for idx, rule in enumerate(self.root.findall(".//filter/rule")):
-            floating = self._get_text(rule, "floating") == "yes"
+            floating_val = self._get_text(rule, "floating")
+            floating = floating_val.lower() in ("yes", "1", "true") or rule.find("floating") is not None
             descr = self._get_text(rule, "descr") or f"Regel #{idx+1}"
 
             if floating:
-                omitted.append(
-                    OmittedItem(
-                        category="Firewall",
-                        name=f"Floating Rule '{descr}'",
-                        reason="OPNsense Floating Rules wirken Schnittstellen-übergreifend. UniFi ordnet Firewall-Regeln strikt den Zonen LAN_IN, WAN_IN oder LAN_LOCAL zu.",
-                        recommendation="Wurde analysiert. Prüfen Sie, für welches VLAN die Regel galt, und pflegen Sie sie bei Bedarf als Traffic Rule.",
-                        severity="warning",
+                quick = self._get_text(rule, "quick") != "no"
+                if not quick:
+                    omitted.append(
+                        OmittedItem(
+                            category="Firewall",
+                            name=f"Floating Rule '{descr}' (Non-Quick)",
+                            reason="Diese Floating Rule verwendet 'non-quick' (in FreeBSD/pf gewinnt die letzte passende Regel). UniFi arbeitet strikt nach First-Match-Priorität (von oben nach unten).",
+                            recommendation="Die Regel wurde konvertiert. Prüfen Sie die Positionierung in der UniFi Firewall-Regelliste.",
+                            severity="info",
+                        )
                     )
-                )
 
         # 3. FreeBSD User Accounts & Plugins
         users = self.root.findall(".//system/user")

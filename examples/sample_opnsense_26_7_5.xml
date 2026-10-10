@@ -312,6 +312,22 @@
       </destination>
       <descr>Isolate Cameras from Internet</descr>
     </rule>
+    <rule>
+      <floating>yes</floating>
+      <direction>out</direction>
+      <interface>wan</interface>
+      <type>block</type>
+      <protocol>tcp</protocol>
+      <source>
+        <network>any</network>
+      </source>
+      <destination>
+        <network>any</network>
+        <port>25</port>
+      </destination>
+      <descr>Block Outbound SMTP on WAN</descr>
+      <quick>yes</quick>
+    </rule>
   </filter>
   <openvpn>
     <openvpn-server>
