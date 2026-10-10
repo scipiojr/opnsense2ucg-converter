@@ -100,5 +100,101 @@ def test_core_flow():
     print("SUCCESS: Core workflow, state tests, and interactive rule management tests passed cleanly!")
 
 
+def test_upload_export_and_unify_apis():
+    from src.gui.app import upload_export_file_api, unify_all_api, export_unified_json_api
+    from src.unifi.export_parser import UNIFI_AES_KEY, UNIFI_AES_IV
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from starlette.requests import Request
+    import zipfile
+    import io
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    class MockRequest:
+        def __init__(self, json_data=None, form_data=None, headers=None):
+            self._json = json_data or {}
+            self._form = form_data or {}
+            self.headers = headers or {}
+
+        async def json(self):
+            return self._json
+
+        async def form(self):
+            return self._form
+
+    # 1. Test invalid / corrupt file upload
+    bad_req = MockRequest(json_data={
+        "source_type": "uos_server",
+        "filename": "corrupt_data.unf",
+        "content": "not_valid_at_all_garbage_12345"
+    })
+    res_bad = loop.run_until_complete(upload_export_file_api(bad_req))
+    assert res_bad.status_code == 200
+    res_bad_data = json.loads(res_bad.body.decode("utf-8"))
+    assert res_bad_data["success"] is False
+    assert "Fehler bei der Verarbeitung" in res_bad_data["error"]
+
+    # 2. Test valid UCG JSON export upload
+    ucg_req = MockRequest(json_data={
+        "source_type": "ucg_max",
+        "filename": "ucg_backup.json",
+        "content": json.dumps({
+            "networks": [{"name": "UCG_CAMERAS", "vlan": 40, "ip_subnet": "192.168.40.1/24"}]
+        })
+    })
+    res_ucg = loop.run_until_complete(upload_export_file_api(ucg_req))
+    assert res_ucg.status_code == 200
+    res_ucg_data = json.loads(res_ucg.body.decode("utf-8"))
+    assert res_ucg_data["success"] is True
+    assert res_ucg_data["sources_status"]["ucg_loaded"] is True
+
+    # 3. Test encrypted UOS .unf upload via base64
+    uos_data = {
+        "wlans": [{"name": "UOS-Secret-WiFi", "security": "wpapsk", "x_passphrase": "pass", "vlan": 40}]
+    }
+    zbuf = io.BytesIO()
+    with zipfile.ZipFile(zbuf, "w") as z:
+        z.writestr("settings.json", json.dumps(uos_data))
+    zb = zbuf.getvalue()
+    pad = 16 - (len(zb) % 16)
+    padded = zb + (b"\x00" * pad)
+    c = Cipher(algorithms.AES(UNIFI_AES_KEY), modes.CBC(UNIFI_AES_IV))
+    enc = c.encryptor()
+    encrypted_unf = enc.update(padded) + enc.finalize()
+
+    import base64
+    uos_req = MockRequest(json_data={
+        "source_type": "uos_server",
+        "filename": "uos_server.unf",
+        "base64": base64.b64encode(encrypted_unf).decode("ascii")
+    })
+    res_uos = loop.run_until_complete(upload_export_file_api(uos_req))
+    assert res_uos.status_code == 200
+    res_uos_data = json.loads(res_uos.body.decode("utf-8"))
+    assert res_uos_data["success"] is True
+    assert res_uos_data["sources_status"]["uos_loaded"] is True
+
+    # 4. Test unify_all_api
+    unify_req = MockRequest()
+    res_unify = loop.run_until_complete(unify_all_api(unify_req))
+    assert res_unify.status_code == 200
+    res_unify_data = json.loads(res_unify.body.decode("utf-8"))
+    assert res_unify_data["success"] is True
+    assert res_unify_data["summary"]["total_networks"] >= 6  # OPNsense + UCG
+    assert res_unify_data["summary"]["total_wlans"] >= 1
+
+    # 5. Test export_unified_json_api
+    export_req = MockRequest()
+    res_export = loop.run_until_complete(export_unified_json_api(export_req))
+    assert res_export.status_code == 200
+    assert "attachment; filename=unifi_unified_config.json" in res_export.headers["Content-Disposition"]
+    cfg_data = json.loads(res_export.body.decode("utf-8"))
+    assert len(cfg_data["networks"]) >= 6
+
+    print("SUCCESS: upload_export_file_api, unify_all_api, and export_unified_json_api tests passed cleanly!")
+
+
 if __name__ == "__main__":
     test_core_flow()
+    test_upload_export_and_unify_apis()

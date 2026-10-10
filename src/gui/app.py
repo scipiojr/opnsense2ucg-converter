@@ -4,6 +4,7 @@ Provides interactive REST endpoints for upload, sanitization, LLM prompting, rev
 """
 
 import json
+import logging
 import os
 from typing import Dict, Any, Optional
 
@@ -12,6 +13,8 @@ from starlette.responses import JSONResponse, HTMLResponse
 from starlette.routing import Route, Mount
 from starlette.requests import Request
 from starlette.staticfiles import StaticFiles
+
+logger = logging.getLogger(__name__)
 
 from src.models import OPNsenseConfig, UniFiTargetConfig, UniFiSourceState, ReconciliationReport
 from src.opnsense.parser import OPNsenseParser
@@ -755,7 +758,12 @@ async def upload_export_file_api(request: Request) -> JSONResponse:
 
         export_parser = UniFiExportParser()
 
-        if source_type == "opnsense" or filename.lower().endswith(".xml"):
+        if source_type == "opnsense" or (filename.lower().endswith(".xml") and source_type not in ("ucg_max", "uos_server")):
+            if not filename.lower().endswith(".xml") and not file_bytes.strip().startswith(b"<"):
+                return JSONResponse({
+                    "success": False,
+                    "error": f"Für die OPNsense-Quelle wird eine XML-Datei benötigt (z. B. config.xml). Hochgeladen wurde: {filename}"
+                }, status_code=200)
             xml_text = file_bytes.decode("utf-8", errors="replace")
             state.raw_xml = xml_text
             state.opnsense_filename = filename
@@ -790,7 +798,7 @@ async def upload_export_file_api(request: Request) -> JSONResponse:
                 "summary": uos_st.raw_summary,
             }
         else:
-            return JSONResponse({"success": False, "error": f"Unbekannter Quelltyp: {source_type}"}, status_code=400)
+            return JSONResponse({"success": False, "error": f"Unbekannter Quelltyp: {source_type}"}, status_code=200)
 
         # Automatically reconcile if OPNsense is loaded and either UCG or UOS export is present
         if state.opnsense_cfg and state.unifi_cfg and (state.ucg_state or state.uos_state):
@@ -816,7 +824,7 @@ async def upload_export_file_api(request: Request) -> JSONResponse:
         })
     except Exception as e:
         logger.exception("Error processing export file upload")
-        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+        return JSONResponse({"success": False, "error": f"Fehler bei der Verarbeitung von '{filename}': {str(e)}"}, status_code=200)
 
 
 async def unify_all_api(request: Request) -> JSONResponse:
@@ -825,7 +833,7 @@ async def unify_all_api(request: Request) -> JSONResponse:
             return JSONResponse({
                 "success": False,
                 "error": "Bitte laden Sie zuerst die OPNsense XML-Konfiguration als Master-Quelle."
-            }, status_code=400)
+            }, status_code=200)
 
         # Fresh baseline from OPNsense
         mapper = UniFiMapper(state.opnsense_cfg)
@@ -856,7 +864,8 @@ async def unify_all_api(request: Request) -> JSONResponse:
             }
         })
     except Exception as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+        logger.exception("Error during 3-way consolidation")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
 
 
 async def export_unified_json_api(request: Request) -> JSONResponse:

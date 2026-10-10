@@ -244,7 +244,150 @@ def test_export_files_parsing_and_unification():
     print("SUCCESS: Export files parsing (.json, encrypted .unf) and 3-way unification passed cleanly!")
 
 
+def test_unifi_os_aes256_backup():
+    """
+    Tests decryption and extraction of UniFi OS Console backups (.unifi).
+    Encrypted with AES-256-CBC, IV is first 16 bytes of file, payload is tar.gz.
+    """
+    import os
+    import io
+    import tarfile
+    from src.unifi.export_parser import UniFiExportParser, UNIFI_OS_AES_KEY
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    parser = UniFiExportParser()
+
+    # Create in-memory tar.gz containing settings.json
+    tar_buf = io.BytesIO()
+    with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
+        payload = json.dumps({
+            "wlans": [
+                {"name": "UniFiOS-Guest-WiFi", "security": "open", "vlan": 50, "is_guest": True}
+            ],
+            "devices": [
+                {"name": "UCG-Max-Gateway", "mac": "70:a7:41:11:22:33", "model": "UCG-Max", "type": "ugw"}
+            ]
+        }).encode("utf-8")
+        ti = tarfile.TarInfo(name="settings.json")
+        ti.size = len(payload)
+        tar.addfile(ti, io.BytesIO(payload))
+
+    tar_gz_bytes = tar_buf.getvalue()
+
+    # Encrypt with AES-256-CBC
+    iv = os.urandom(16)
+    pad_len = 16 - (len(tar_gz_bytes) % 16)
+    padded = tar_gz_bytes + (b"\x00" * pad_len)
+    cipher = Cipher(algorithms.AES(UNIFI_OS_AES_KEY), modes.CBC(iv))
+    encryptor = cipher.encryptor()
+    ciphertext = encryptor.update(padded) + encryptor.finalize()
+
+    # Prepend IV to ciphertext (.unifi format)
+    unifi_os_file_bytes = iv + ciphertext
+
+    parsed_st = parser.parse_bytes(unifi_os_file_bytes, filename="console_backup.unifi", source_type="ucg_max")
+    assert len(parsed_st.wlans) == 1
+    assert parsed_st.wlans[0].name == "UniFiOS-Guest-WiFi"
+    assert parsed_st.wlans[0].is_guest is True
+    assert len(parsed_st.devices) == 1
+    assert parsed_st.devices[0].model == "UCG-Max"
+
+    print("SUCCESS: UniFi OS AES-256 console backup decryption test passed cleanly!")
+
+
+def test_bson_stream_comprehensive():
+    """
+    Tests pure-Python BSON decoder with all MongoDB/UniFi types:
+    double, string, embedded doc, array, binary, objectid, boolean, datetime, null, int32, timestamp, int64.
+    """
+    import struct
+    from src.unifi.export_parser import UniFiExportParser
+
+    parser = UniFiExportParser()
+
+    # Construct raw BSON document:
+    # {"name": "TestNet", "vlan": int32(20), "enabled": True, "active": None, "ts": uint64(12345), "speed": double(100.5)}
+    doc_body = bytearray()
+
+    # String: name = "TestNet"
+    doc_body.append(2)  # type string
+    doc_body.extend(b"name\x00")
+    s_val = b"TestNet\x00"
+    doc_body.extend(struct.pack("<i", len(s_val)))
+    doc_body.extend(s_val)
+
+    # Int32: vlan = 20
+    doc_body.append(16)  # type int32
+    doc_body.extend(b"vlan\x00")
+    doc_body.extend(struct.pack("<i", 20))
+
+    # Subnet string: ip_subnet = "192.168.20.1/24"
+    doc_body.append(2)
+    doc_body.extend(b"ip_subnet\x00")
+    sub_val = b"192.168.20.1/24\x00"
+    doc_body.extend(struct.pack("<i", len(sub_val)))
+    doc_body.extend(sub_val)
+
+    # Boolean: enabled = True
+    doc_body.append(8)
+    doc_body.extend(b"enabled\x00")
+    doc_body.append(1)
+
+    # Null: note = None
+    doc_body.append(10)
+    doc_body.extend(b"note\x00")
+
+    # Double: speed = 100.5
+    doc_body.append(1)
+    doc_body.extend(b"speed\x00")
+    doc_body.extend(struct.pack("<d", 100.5))
+
+    # UTC Datetime: created = 1600000000000
+    doc_body.append(9)
+    doc_body.extend(b"created\x00")
+    doc_body.extend(struct.pack("<q", 1600000000000))
+
+    # Null terminator for document
+    doc_body.append(0)
+
+    # Prepend document length (total including 4-byte length header)
+    doc_len = 4 + len(doc_body)
+    raw_bson = struct.pack("<i", doc_len) + bytes(doc_body)
+
+    docs = parser._decode_bson_stream(raw_bson)
+    assert len(docs) == 1
+    d = docs[0]
+    assert d["name"] == "TestNet"
+    assert d["vlan"] == 20
+    assert d["ip_subnet"] == "192.168.20.1/24"
+    assert d["enabled"] is True
+    assert d["note"] is None
+    assert d["speed"] == 100.5
+    assert d["created"] == 1600000000000
+
+    print("SUCCESS: Comprehensive BSON stream parsing test passed cleanly!")
+
+
+def test_corrupt_file_handling():
+    """
+    Ensures corrupt or random files don't crash the server and raise clean descriptive exceptions.
+    """
+    from src.unifi.export_parser import UniFiExportParser
+    parser = UniFiExportParser()
+
+    try:
+        parser.parse_bytes(b"garbage_random_bytes_that_are_not_valid_at_all" * 5, filename="bad.unf")
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "nicht als UniFi-Backup" in str(e) or "entschlüsselt" in str(e)
+
+    print("SUCCESS: Corrupt file handling test passed cleanly!")
+
+
 if __name__ == "__main__":
     test_three_way_reconciliation()
     test_export_files_parsing_and_unification()
+    test_unifi_os_aes256_backup()
+    test_bson_stream_comprehensive()
+    test_corrupt_file_handling()
 

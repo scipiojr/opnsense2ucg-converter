@@ -2100,7 +2100,15 @@
           method: 'POST',
           body: formData
         });
-        const data = await res.json();
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (jsonErr) {
+          showToast(`Server-Antwortfehler (${res.status}): ${text.substring(0, 150)}`, true);
+          return;
+        }
+
         if (data.success) {
           const elStatus = document.getElementById(statusMap[sourceType]);
           const elLabel = document.getElementById(labelMap[sourceType]);
@@ -2140,7 +2148,14 @@
       showToast('Führe 3-Wege-Fusion der Konfigurationen durch...');
       try {
         const res = await fetch('/api/sources/unify-all', { method: 'POST' });
-        const data = await res.json();
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (jsonErr) {
+          showToast(`Server-Antwortfehler (${res.status}): ${text.substring(0, 150)}`, true);
+          return;
+        }
         if (data.success) {
           if (data.reconciliation) renderReconciliation(data.reconciliation);
           if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
