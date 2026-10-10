@@ -26,6 +26,7 @@ from src.models import (
     UniFiWlan,
 )
 from src.opnsense.parser import OPNsenseParser
+from src.opnsense.client import OPNsenseClient
 from src.sanitizer.masker import SanitizerVault
 from src.translator.mapper import UniFiMapper
 from src.translator.merger import MultiSourceMerger
@@ -104,7 +105,7 @@ async def upload_xml_api(request: Request) -> JSONResponse:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
-async def process_xml(xml_content: str) -> JSONResponse:
+def _apply_xml_content(xml_content: str) -> Dict[str, Any]:
     state.raw_xml = xml_content
     parser = OPNsenseParser(xml_content)
     state.opnsense_cfg = parser.parse()
@@ -118,71 +119,78 @@ async def process_xml(xml_content: str) -> JSONResponse:
         merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
         state.reconciliation_report = merger.reconcile()
 
-    return JSONResponse({
+    summary_data = {
+        "version": state.opnsense_cfg.version,
+        "interfaces_count": len(state.opnsense_cfg.interfaces),
+        "static_leases_count": len(state.opnsense_cfg.static_leases),
+        "aliases_count": len(state.opnsense_cfg.aliases),
+        "port_forwards_count": len(state.opnsense_cfg.port_forwards),
+        "filter_rules_count": len(state.opnsense_cfg.filter_rules),
+        "omitted_count": len(state.opnsense_cfg.omitted_items),
+        "omitted_items": [
+            {
+                "category": o.category,
+                "name": o.name,
+                "reason": o.reason,
+                "recommendation": o.recommendation,
+                "severity": o.severity,
+            }
+            for o in state.opnsense_cfg.omitted_items
+        ],
+        "interfaces": [
+            {
+                "id": i.id,
+                "descr": i.descr,
+                "ip": f"{i.ipaddr}/{i.subnet}" if i.subnet else i.ipaddr,
+                "vlan": i.vlan_tag or "Untagged",
+                "device": i.physical_if,
+            }
+            for i in state.opnsense_cfg.interfaces
+        ],
+        "static_leases": [
+            {
+                "mac": l.mac,
+                "ip": l.ipaddr,
+                "hostname": l.hostname,
+                "descr": l.descr,
+                "iface": l.interface,
+            }
+            for l in state.opnsense_cfg.static_leases
+        ],
+        "aliases": [
+            {
+                "name": a.name,
+                "type": a.type,
+                "content": a.content,
+                "descr": a.descr,
+            }
+            for a in state.opnsense_cfg.aliases
+        ],
+        "filter_rules": [
+            {
+                "id": r.id,
+                "iface": r.interface,
+                "action": r.action,
+                "proto": r.protocol,
+                "src": r.src,
+                "dst": r.dst,
+                "dst_port": r.dst_port,
+                "descr": r.descr,
+            }
+            for r in state.opnsense_cfg.filter_rules
+        ],
+    }
+
+    return {
         "success": True,
-        "summary": {
-            "version": state.opnsense_cfg.version,
-            "interfaces_count": len(state.opnsense_cfg.interfaces),
-            "static_leases_count": len(state.opnsense_cfg.static_leases),
-            "aliases_count": len(state.opnsense_cfg.aliases),
-            "port_forwards_count": len(state.opnsense_cfg.port_forwards),
-            "filter_rules_count": len(state.opnsense_cfg.filter_rules),
-            "omitted_count": len(state.opnsense_cfg.omitted_items),
-            "omitted_items": [
-                {
-                    "category": o.category,
-                    "name": o.name,
-                    "reason": o.reason,
-                    "recommendation": o.recommendation,
-                    "severity": o.severity,
-                }
-                for o in state.opnsense_cfg.omitted_items
-            ],
-            "interfaces": [
-                {
-                    "id": i.id,
-                    "descr": i.descr,
-                    "ip": f"{i.ipaddr}/{i.subnet}" if i.subnet else i.ipaddr,
-                    "vlan": i.vlan_tag or "Untagged",
-                    "device": i.physical_if,
-                }
-                for i in state.opnsense_cfg.interfaces
-            ],
-            "static_leases": [
-                {
-                    "mac": l.mac,
-                    "ip": l.ipaddr,
-                    "hostname": l.hostname,
-                    "descr": l.descr,
-                    "iface": l.interface,
-                }
-                for l in state.opnsense_cfg.static_leases
-            ],
-            "aliases": [
-                {
-                    "name": a.name,
-                    "type": a.type,
-                    "content": a.content,
-                    "descr": a.descr,
-                }
-                for a in state.opnsense_cfg.aliases
-            ],
-            "filter_rules": [
-                {
-                    "id": r.id,
-                    "iface": r.interface,
-                    "action": r.action,
-                    "proto": r.protocol,
-                    "src": r.src,
-                    "dst": r.dst,
-                    "dst_port": r.dst_port,
-                    "descr": r.descr,
-                }
-                for r in state.opnsense_cfg.filter_rules
-            ],
-        },
+        "summary": summary_data,
         "unifi_mapped": get_unifi_config_dict(),
-    })
+    }
+
+
+async def process_xml(xml_content: str) -> JSONResponse:
+    data = _apply_xml_content(xml_content)
+    return JSONResponse(data)
 
 
 def get_unifi_config_dict() -> Dict[str, Any]:
@@ -772,6 +780,45 @@ async def apply_llm_suggestion_api(request: Request) -> JSONResponse:
         return JSONResponse({"success": False, "error": f"Rule with index {rule_index} not found"}, status_code=404)
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+async def fetch_opnsense_live_api(request: Request) -> JSONResponse:
+    try:
+        body = await request.json()
+        host = body.get("host", "192.168.1.1")
+        port = int(body.get("port", 443))
+        protocol = body.get("protocol", "https")
+        api_key = body.get("api_key", "")
+        api_secret = body.get("api_secret", "")
+        username = body.get("username", "")
+        password = body.get("password", "")
+
+        # If user passed key/secret in username/password or vice versa, handle smoothly
+        if not api_key and username:
+            api_key = username
+        if not api_secret and password:
+            api_secret = password
+
+        client = OPNsenseClient(
+            host=host,
+            port=port,
+            protocol=protocol,
+            api_key=api_key,
+            api_secret=api_secret,
+            username=username,
+            password=password,
+            verify_ssl=False,
+        )
+
+        xml_content = client.fetch_config_xml()
+        state.opnsense_filename = f"live-opnsense-{host}.xml"
+        result = _apply_xml_content(xml_content)
+        result["source"] = "opnsense"
+        result["host"] = host
+        return JSONResponse(result)
+    except Exception as e:
+        logger.exception("Error in fetch_opnsense_live_api")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
 
 
 async def fetch_ucg_live_api(request: Request) -> JSONResponse:
@@ -1552,6 +1599,7 @@ routes = [
     Route("/api/rules/bulk-status", endpoint=bulk_rule_status_api, methods=["POST"]),
     Route("/api/rules/llm-assist", endpoint=llm_assist_rule_api, methods=["POST"]),
     Route("/api/rules/apply-llm-suggestion", endpoint=apply_llm_suggestion_api, methods=["POST"]),
+    Route("/api/sources/fetch-opnsense", endpoint=fetch_opnsense_live_api, methods=["POST"]),
     Route("/api/sources/fetch-ucg", endpoint=fetch_ucg_live_api, methods=["POST"]),
     Route("/api/sources/fetch-uos", endpoint=fetch_uos_live_api, methods=["POST"]),
     Route("/api/sources/reconcile", endpoint=reconcile_sources_api, methods=["POST"]),

@@ -498,9 +498,83 @@ def test_vlan_remapping_and_wlan_crud():
     print("SUCCESS: VLAN remapping cascading migration & WLAN CRUD tests passed cleanly!")
 
 
+def test_opnsense_live_fetch():
+    from unittest.mock import patch, MagicMock
+    from src.opnsense.client import OPNsenseClient
+    from src.gui.app import fetch_opnsense_live_api
+
+    class MockRequest:
+        def __init__(self, json_data=None):
+            self._json = json_data or {}
+        async def json(self):
+            return self._json
+
+    state.reset()
+    sample_path = os.path.join(os.path.dirname(__file__), "..", "examples", "sample_opnsense_26_7_5.xml")
+    with open(sample_path, "r", encoding="utf-8") as f:
+        xml_data = f.read()
+
+    # 1. Test OPNsenseClient initialization & URL cleaning
+    client = OPNsenseClient(host="https://192.168.1.1:8443/", api_key="testkey", api_secret="testsecret")
+    assert client.host == "192.168.1.1"
+    assert client.port == 8443
+
+    # 2. Test successful fetch_config_xml via API Basic Auth
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = xml_data
+
+    with patch.object(client.session, "get", return_value=mock_resp) as mock_get:
+        fetched_xml = client.fetch_config_xml()
+        assert fetched_xml == xml_data
+        assert mock_get.called
+        args, kwargs = mock_get.call_args
+        assert kwargs["auth"] == ("testkey", "testsecret")
+
+    # 3. Test failure raises ConnectionError
+    err_resp = MagicMock()
+    err_resp.status_code = 401
+    err_resp.text = "Unauthorized"
+    bad_client = OPNsenseClient(host="192.168.1.1", api_key="wrong", api_secret="wrong")
+    with patch.object(bad_client.session, "get", return_value=err_resp):
+        try:
+            bad_client.fetch_config_xml()
+            assert False, "Should have raised ConnectionError"
+        except ConnectionError as ce:
+            assert "401" in str(ce)
+
+    # 4. Test fetch_opnsense_live_api endpoint
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    with patch("src.gui.app.OPNsenseClient") as MockCls:
+        instance = MockCls.return_value
+        instance.fetch_config_xml.return_value = xml_data
+
+        req = MockRequest({
+            "host": "192.168.10.1",
+            "port": 443,
+            "api_key": "mykey",
+            "api_secret": "mysecret"
+        })
+        api_res = loop.run_until_complete(fetch_opnsense_live_api(req))
+        assert api_res.status_code == 200
+        data = json.loads(api_res.body.decode("utf-8"))
+        assert data["success"] is True
+        assert data["source"] == "opnsense"
+        assert data["host"] == "192.168.10.1"
+        assert data["summary"]["version"] == "26.7.5"
+        assert data["summary"]["interfaces_count"] == 6
+        assert state.opnsense_cfg is not None
+        assert state.unifi_cfg is not None
+
+    print("SUCCESS: OPNsense live fetch & API client tests passed cleanly!")
+
+
 if __name__ == "__main__":
     test_core_flow()
     test_upload_export_and_unify_apis()
     test_network_and_fixed_ip_editing()
     test_unifi_config_dict_fallback_and_uos_safety()
     test_vlan_remapping_and_wlan_crud()
+    test_opnsense_live_fetch()

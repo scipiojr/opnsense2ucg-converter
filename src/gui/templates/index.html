@@ -133,6 +133,30 @@
                   <i class="fa-solid fa-magnifying-glass"></i> Parsen
                 </button>
               </div>
+
+              <!-- Quick Live Connection Toggle for OPNsense -->
+              <details class="text-[11px] bg-slate-900/80 rounded-lg border border-slate-800 p-2">
+                <summary class="cursor-pointer text-sky-400 hover:text-sky-300 font-medium flex items-center justify-between">
+                  <span><i class="fa-solid fa-plug text-[10px] mr-1"></i> Live-Abfrage via API / IP</span>
+                  <span id="opn-source-status" class="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">Inaktiv</span>
+                </summary>
+                <div class="space-y-2 pt-2 border-t border-slate-800/80 mt-1">
+                  <div class="grid grid-cols-3 gap-1.5">
+                    <input type="text" id="src-opn-host" value="192.168.1.1" placeholder="IP / Host" class="col-span-2 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                    <input type="number" id="src-opn-port" value="443" class="bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-[11px]">
+                  </div>
+                  <div class="grid grid-cols-2 gap-1.5">
+                    <input type="text" id="src-opn-key" placeholder="API-Key (oder User)" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                    <input type="password" id="src-opn-secret" placeholder="API-Secret (oder Pass)" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                  </div>
+                  <div class="flex items-center justify-between pt-1">
+                    <span id="src-opn-info" class="text-[10px] text-slate-400 truncate max-w-[120px]">Keine Live-Daten</span>
+                    <button onclick="fetchOpnsenseState()" id="btn-fetch-opn" class="bg-sky-600 hover:bg-sky-500 text-white text-[11px] px-2 py-1 rounded font-medium transition flex items-center gap-1">
+                      <i class="fa-solid fa-cloud-arrow-down"></i> Abrufen
+                    </button>
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
 
@@ -3202,6 +3226,80 @@
 
       if (tbody1) tbody1.innerHTML = html1;
       if (tbody2) tbody2.innerHTML = html2;
+    }
+
+    async function fetchOpnsenseState() {
+      const host = document.getElementById('src-opn-host').value;
+      const port = document.getElementById('src-opn-port').value;
+      const key = document.getElementById('src-opn-key').value;
+      const secret = document.getElementById('src-opn-secret').value;
+
+      const btn = document.getElementById('btn-fetch-opn');
+      const origHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Lese...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/sources/fetch-opnsense', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            host,
+            port: parseInt(port),
+            api_key: key,
+            api_secret: secret,
+            username: key,
+            password: secret
+          })
+        });
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (jsonErr) {
+          showToast(`Server-Antwortfehler (${res.status}): ${text.substring(0, 150)}`, true);
+          return;
+        }
+
+        if (data.success) {
+          const elStatus = document.getElementById('opn-source-status');
+          const elFileStatus = document.getElementById('file-status-opnsense');
+          const elLabel = document.getElementById('label-file-opnsense');
+          const elInfo = document.getElementById('src-opn-info');
+
+          if (elStatus) {
+            elStatus.className = 'px-1.5 py-0.2 rounded text-[9px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800';
+            elStatus.innerText = 'Verbunden';
+          }
+          if (elFileStatus) {
+            elFileStatus.className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800';
+            elFileStatus.innerText = 'Live geladen';
+          }
+          if (elLabel) {
+            elLabel.innerText = `Live: ${host}:${port}`;
+          }
+          if (elInfo) {
+            elInfo.innerText = `${data.summary.interfaces_count} Netze, ${data.summary.filter_rules_count} Regeln`;
+          }
+
+          renderParsedData(data);
+          if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
+          if (data.reconciliation) renderReconciliation(data.reconciliation);
+          showToast(`OPNsense Konfiguration erfolgreich live von ${host} abgerufen!`);
+        } else {
+          const elStatus = document.getElementById('opn-source-status');
+          if (elStatus) {
+            elStatus.className = 'px-1.5 py-0.2 rounded text-[9px] font-semibold bg-red-950 text-red-400 border border-red-800';
+            elStatus.innerText = 'Fehler';
+          }
+          showToast(data.error || 'Fehler beim Live-Abruf von OPNsense', true);
+        }
+      } catch (err) {
+        showToast('Verbindungsfehler: ' + err.message, true);
+      } finally {
+        btn.innerHTML = origHtml;
+        btn.disabled = false;
+      }
     }
 
     async function fetchUcgState() {
