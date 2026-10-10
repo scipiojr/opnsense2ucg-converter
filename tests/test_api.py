@@ -15,6 +15,7 @@ from src.unifi.client import UniFiGatewayClient
 
 
 def test_core_flow():
+    state.reset()
     sample_path = os.path.join(os.path.dirname(__file__), "..", "examples", "sample_opnsense_26_7_5.xml")
     with open(sample_path, "r", encoding="utf-8") as f:
         xml_data = f.read()
@@ -195,6 +196,117 @@ def test_upload_export_and_unify_apis():
     print("SUCCESS: upload_export_file_api, unify_all_api, and export_unified_json_api tests passed cleanly!")
 
 
+def test_network_and_fixed_ip_editing():
+    from src.gui.app import (
+        update_network_api,
+        add_network_api,
+        delete_network_api,
+        update_fixed_ip_api,
+        add_fixed_ip_api,
+        delete_fixed_ip_api,
+    )
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    class MockRequest:
+        def __init__(self, json_data):
+            self._json = json_data
+
+        async def json(self):
+            return self._json
+
+    # 1. Test update_network_api (adapt VLAN ID, CIDR, and IP range)
+    init_net_count = len(state.unifi_cfg.networks)
+    upd_req = MockRequest({
+        "index": 1,
+        "network": {
+            "name": "CUSTOM_OFFICE_NET",
+            "vlan_id": 42,
+            "gateway_cidr": "192.168.42.1/24",
+            "dhcp_enabled": True,
+            "dhcp_start": "192.168.42.20",
+            "dhcp_stop": "192.168.42.220",
+            "purpose": "corporate",
+            "domain_name": "office.internal"
+        }
+    })
+    res_upd = loop.run_until_complete(update_network_api(upd_req))
+    assert res_upd.status_code == 200
+    res_data = json.loads(res_upd.body.decode("utf-8"))
+    assert res_data["success"] is True
+
+    updated_net = state.unifi_cfg.networks[1]
+    assert updated_net.name == "CUSTOM_OFFICE_NET"
+    assert updated_net.vlan_id == 42
+    assert updated_net.gateway_cidr == "192.168.42.1/24"
+    assert updated_net.dhcp_start == "192.168.42.20"
+    assert updated_net.dhcp_stop == "192.168.42.220"
+
+    # 2. Test add_network_api and delete_network_api
+    add_req = MockRequest({
+        "network": {
+            "name": "DMZ_VLAN",
+            "vlan_id": 999,
+            "gateway_cidr": "10.99.99.1/24",
+            "dhcp_enabled": False,
+        }
+    })
+    res_add = loop.run_until_complete(add_network_api(add_req))
+    assert res_add.status_code == 200
+    assert len(state.unifi_cfg.networks) == init_net_count + 1
+
+    del_req = MockRequest({"index": len(state.unifi_cfg.networks) - 1})
+    res_del = loop.run_until_complete(delete_network_api(del_req))
+    assert res_del.status_code == 200
+    assert len(state.unifi_cfg.networks) == init_net_count
+
+    # 3. Test update_fixed_ip_api (adapt MAC and IP)
+    init_fip_count = len(state.unifi_cfg.fixed_ips)
+    assert init_fip_count > 0
+
+    fip_upd_req = MockRequest({
+        "index": 0,
+        "fixed_ip": {
+            "mac": "aa:bb:cc:11:22:33",
+            "name": "Custom-NAS-Modified",
+            "fixed_ip": "192.168.42.55",
+            "network_name": "CUSTOM_OFFICE_NET"
+        }
+    })
+    res_fip = loop.run_until_complete(update_fixed_ip_api(fip_upd_req))
+    assert res_fip.status_code == 200
+    res_fip_data = json.loads(res_fip.body.decode("utf-8"))
+    assert res_fip_data["success"] is True
+
+    target_fip = state.unifi_cfg.fixed_ips[0]
+    assert target_fip.mac == "aa:bb:cc:11:22:33"
+    assert target_fip.name == "Custom-NAS-Modified"
+    assert target_fip.fixed_ip == "192.168.42.55"
+    assert target_fip.network_name == "CUSTOM_OFFICE_NET"
+
+    # 4. Test add_fixed_ip_api and delete_fixed_ip_api
+    add_fip_req = MockRequest({
+        "fixed_ip": {
+            "mac": "de:ad:be:ef:00:01",
+            "name": "Smart-TV-LivingRoom",
+            "fixed_ip": "192.168.42.100",
+            "network_name": "CUSTOM_OFFICE_NET"
+        }
+    })
+    res_add_fip = loop.run_until_complete(add_fixed_ip_api(add_fip_req))
+    assert res_add_fip.status_code == 200
+    assert len(state.unifi_cfg.fixed_ips) == init_fip_count + 1
+
+    del_fip_req = MockRequest({"index": len(state.unifi_cfg.fixed_ips) - 1})
+    res_del_fip = loop.run_until_complete(delete_fixed_ip_api(del_fip_req))
+    assert res_del_fip.status_code == 200
+    assert len(state.unifi_cfg.fixed_ips) == init_fip_count
+
+    print("SUCCESS: Network & Fixed IP customization tests (VLAN ID, CIDR, DHCP Range, MAC, IP) passed cleanly!")
+
+
 if __name__ == "__main__":
     test_core_flow()
     test_upload_export_and_unify_apis()
+    test_network_and_fixed_ip_editing()

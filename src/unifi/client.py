@@ -61,6 +61,7 @@ class UniFiGatewayClient:
         self.session.verify = verify_ssl
         self.csrf_token = ""
         self.logged_in = False
+        self.last_login_error = ""
 
         self.base_url = f"https://{self.host}:{self.port}"
         # On UniFi OS consoles (UDM, UCG-Max), network endpoints are proxied
@@ -68,50 +69,98 @@ class UniFiGatewayClient:
 
     def login(self) -> bool:
         """
-        Authenticates against UniFi OS Console (UCG-Max) or standalone UniFi Network Server (UOS).
-        Automatically falls back between modern UniFi OS proxy and legacy Network Application.
+        Authenticates against UniFi OS Console (UCG-Max / UDM / CloudKey) or standalone UniFi Network Server (UOS).
+        Supports modern UniFi OS /api/auth/login, CSRF headers, and legacy Network Application /api/login.
         """
+        self.last_login_error = ""
+
         if self.api_key:
-            self.session.headers.update({"X-API-KEY": self.api_key})
+            self.session.headers.update({
+                "X-API-KEY": self.api_key,
+                "Accept": "application/json",
+            })
             self.logged_in = True
             return True
 
-        # Try UniFi OS login first (UCG-Max / UDM on port 443)
-        if self.port != 8443:
-            login_url = f"{self.base_url}/api/auth/login"
-            payload = {"username": self.username, "password": self.password, "token": ""}
+        # Standard headers required by UniFi OS CSRF / Origin checks
+        self.session.headers.update({
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Referer": f"{self.base_url}/manage",
+            "Origin": self.base_url,
+        })
+
+        # 1. Try modern UniFi OS authentication endpoint (/api/auth/login)
+        uos_login_url = f"{self.base_url}/api/auth/login"
+        payload_candidates = [
+            {"username": self.username, "password": self.password, "rememberMe": True},
+            {"username": self.username, "password": self.password},
+            {"username": self.username, "password": self.password, "token": ""},
+        ]
+
+        for payload in payload_candidates:
             try:
-                res = self.session.post(login_url, json=payload, timeout=8)
+                res = self.session.post(uos_login_url, json=payload, timeout=8)
                 if res.status_code == 200:
-                    self.csrf_token = res.headers.get("x-csrf-token", "")
-                    if self.csrf_token:
+                    csrf = res.headers.get("x-csrf-token") or res.headers.get("csrf-token") or ""
+                    if csrf:
+                        self.csrf_token = csrf
                         self.session.headers.update({"x-csrf-token": self.csrf_token})
                     self.api_prefix = f"{self.base_url}/proxy/network/api/s/{self.site}"
                     self.logged_in = True
                     return True
-            except Exception:
-                pass
+                elif res.status_code == 401:
+                    # UniFi OS rejected credentials
+                    err_detail = "Ungültige Anmeldedaten"
+                    try:
+                        err_json = res.json()
+                        if "error" in err_json and isinstance(err_json["error"], dict):
+                            err_detail = err_json["error"].get("message", "Unauthorized")
+                        elif "meta" in err_json and isinstance(err_json["meta"], dict):
+                            err_detail = err_json["meta"].get("msg", "Unauthorized")
+                    except Exception:
+                        pass
+                    self.last_login_error = (
+                        f"UniFi OS Authentifizierungsfehler ({err_detail}). "
+                        "Wichtig: Für den lokalen Zugriff muss ein lokales Administratorkonto verwendet werden "
+                        "(in UniFi OS unter 'Admins' -> 'Lokale Zugangsdaten'). "
+                        "Ubiquiti SSO/Cloud-Konten mit aktivierter Zwei-Faktor-Authentifizierung (2FA) können per Passwort nicht lokal abgefragt werden. "
+                        "Alternativ können Sie einen API-Key oder ein Backup (.unf/.unifi/.json) nutzen."
+                    )
+            except Exception as e:
+                logger.debug(f"UniFi OS /api/auth/login attempt error: {e}")
 
-        # Fallback to standalone Network Application login (classic UOS Server on 8443 or 443)
-        login_url_legacy = f"{self.base_url}/api/login"
-        payload_legacy = {"username": self.username, "password": self.password}
-        try:
-            res = self.session.post(login_url_legacy, json=payload_legacy, timeout=8)
-            if res.status_code == 200:
-                self.api_prefix = f"{self.base_url}/api/s/{self.site}"
-                self.logged_in = True
-                return True
-            else:
-                logger.error(f"Login failed: HTTP {res.status_code} - {res.text}")
-                return False
-        except Exception as e:
-            logger.error(f"Connection error to UniFi at {self.host}:{self.port}: {str(e)}")
-            return False
+        # 2. Try classic standalone Network Application login endpoints (/api/login, /api/s/{site}/login)
+        for legacy_path in [f"{self.base_url}/api/login", f"{self.base_url}/api/s/{self.site}/login"]:
+            try:
+                res = self.session.post(
+                    legacy_path,
+                    json={"username": self.username, "password": self.password, "remember": True},
+                    timeout=8
+                )
+                if res.status_code == 200:
+                    csrf = res.headers.get("x-csrf-token") or res.headers.get("csrf-token") or ""
+                    if csrf:
+                        self.csrf_token = csrf
+                        self.session.headers.update({"x-csrf-token": self.csrf_token})
+                    self.api_prefix = f"{self.base_url}/api/s/{self.site}"
+                    self.logged_in = True
+                    return True
+                elif res.status_code == 401 and not self.last_login_error:
+                    self.last_login_error = "UniFi Network Authentifizierungsfehler (HTTP 401: Benutzername oder Passwort ungültig)."
+            except Exception as e:
+                logger.debug(f"Legacy login {legacy_path} attempt error: {e}")
+
+        if not self.last_login_error:
+            self.last_login_error = f"Verbindung zu UniFi unter {self.host}:{self.port} fehlgeschlagen (keine Antwort oder Timeout)."
+
+        logger.error(f"Login failed: {self.last_login_error}")
+        return False
 
     def test_connection(self) -> Tuple[bool, str]:
         try:
             if not self.login():
-                return False, f"Authentication failed on {self.host}:{self.port}. Please check credentials."
+                return False, self.last_login_error or f"Authentication failed on {self.host}:{self.port}."
             # Verify network application responds
             sys_info_url = f"{self.api_prefix}/stat/sysinfo"
             res = self.session.get(sys_info_url, timeout=10)
@@ -131,7 +180,7 @@ class UniFiGatewayClient:
         """
         if not self.logged_in:
             if not self.login():
-                raise RuntimeError(f"Could not authenticate with {self.host}:{self.port}")
+                raise RuntimeError(self.last_login_error or f"Konnte nicht an {self.host}:{self.port} authentifizieren.")
 
         version = "unknown"
         try:

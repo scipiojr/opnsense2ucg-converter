@@ -402,6 +402,11 @@
               <input type="password" id="src-ucg-pass" onchange="syncUcgCredentials()" placeholder="Gateway Passwort" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
             </div>
           </div>
+          <div>
+            <label class="block text-[11px] font-medium text-slate-400 mb-1">API-Key (optional, UniFi OS 3.x+)</label>
+            <input type="password" id="src-ucg-apikey" placeholder="API-Key (UniFi OS -> Admins -> API Key)" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            <p class="text-[10px] text-slate-500 mt-1">Hinweis: Bitte lokalen Admin (unter UniFi OS -> Admins) nutzen, kein Cloud-SSO mit 2FA.</p>
+          </div>
           <div class="pt-1 flex items-center justify-between">
             <span id="src-ucg-info" class="text-[11px] text-slate-400">Noch keine Live-Daten</span>
             <button onclick="fetchUcgState()" id="btn-fetch-ucg" class="bg-sky-600 hover:bg-sky-500 text-white text-xs px-3.5 py-1.5 rounded-lg font-medium transition flex items-center gap-1.5">
@@ -440,6 +445,11 @@
               <label class="block text-[11px] font-medium text-slate-400 mb-1">Passwort</label>
               <input type="password" id="src-uos-pass" placeholder="Server Passwort" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
             </div>
+          </div>
+          <div>
+            <label class="block text-[11px] font-medium text-slate-400 mb-1">API-Key (optional)</label>
+            <input type="password" id="src-uos-apikey" placeholder="API-Key (falls vorhanden)" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200">
+            <p class="text-[10px] text-slate-500 mt-1">Hinweis: Bitte lokalen Admin (unter UniFi OS -> Admins) nutzen, kein Cloud-SSO mit 2FA.</p>
           </div>
           <div class="pt-1 flex items-center justify-between">
             <span id="src-uos-info" class="text-[11px] text-slate-400">Noch keine Live-Daten</span>
@@ -691,9 +701,14 @@
 
       <!-- Networks Table -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <h3 class="text-sm font-semibold mb-3 flex items-center gap-2 text-sky-400">
-          <i class="fa-solid fa-network-wired"></i> UniFi Virtual Networks (VLANs &amp; DHCP)
-        </h3>
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold flex items-center gap-2 text-sky-400">
+            <i class="fa-solid fa-network-wired"></i> UniFi Virtual Networks (VLANs &amp; DHCP)
+          </h3>
+          <button onclick="openAddNetworkModal()" class="px-3 py-1 bg-sky-950 hover:bg-sky-900 border border-sky-700 text-sky-300 rounded-lg text-xs font-medium flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-plus"></i> Neues Netzwerk anlegen
+          </button>
+        </div>
         <div class="overflow-x-auto">
           <table class="w-full text-xs text-left">
             <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
@@ -703,6 +718,7 @@
                 <th class="py-2 px-3">Gateway / Subnetz CIDR</th>
                 <th class="py-2 px-3">DHCP Status</th>
                 <th class="py-2 px-3">DHCP Pool</th>
+                <th class="py-2 px-3 text-right">Aktionen</th>
               </tr>
             </thead>
             <tbody id="unifi-networks-tbody" class="divide-y divide-slate-800"></tbody>
@@ -831,9 +847,14 @@
         </div>
 
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <h3 class="text-sm font-semibold mb-3 flex items-center gap-2 text-emerald-400">
-            <i class="fa-solid fa-address-card"></i> Feste Client-IPs (Fixed IPs)
-          </h3>
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold flex items-center gap-2 text-emerald-400">
+              <i class="fa-solid fa-address-card"></i> Feste Client-IPs (Fixed IPs)
+            </h3>
+            <button onclick="openAddFixedIpModal()" class="px-2.5 py-1 bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 rounded-lg text-xs font-medium flex items-center gap-1 transition">
+              <i class="fa-solid fa-plus"></i> Neue feste IP
+            </button>
+          </div>
           <div class="overflow-x-auto max-h-60 overflow-y-auto">
             <table class="w-full text-xs text-left">
               <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40 sticky top-0">
@@ -842,6 +863,7 @@
                   <th class="py-2 px-3">Feste IP</th>
                   <th class="py-2 px-3">MAC-Adresse</th>
                   <th class="py-2 px-3">Netzwerk</th>
+                  <th class="py-2 px-3 text-right">Aktionen</th>
                 </tr>
               </thead>
               <tbody id="unifi-fixedips-tbody" class="divide-y divide-slate-800"></tbody>
@@ -1125,6 +1147,128 @@
       <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
         <button onclick="closeEditRuleModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">Abbrechen</button>
         <button onclick="saveEditRuleModal()" class="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center gap-1.5">
+          <i class="fa-solid fa-check"></i> Speichern &amp; Übernehmen
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Netzwerk / VLAN anpassen oder neu anlegen -->
+  <div id="edit-network-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-sky-800/60 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <h3 class="text-sm font-semibold text-sky-300 flex items-center gap-2">
+          <i class="fa-solid fa-network-wired text-sky-400"></i> <span id="modal-net-title">Netzwerk &amp; VLAN anpassen</span>
+        </h3>
+        <button onclick="closeEditNetworkModal()" class="text-slate-400 hover:text-slate-200 text-lg">&times;</button>
+      </div>
+
+      <input type="hidden" id="modal-net-index" value="-1">
+
+      <div class="space-y-3 text-xs">
+        <div class="grid grid-cols-3 gap-3">
+          <div class="col-span-2">
+            <label class="block text-slate-400 mb-1">Netzwerkname</label>
+            <input type="text" id="modal-net-name" placeholder="z.B. OFFICE_MGMT" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500 font-semibold">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">VLAN ID (1-4094)</label>
+            <input type="number" id="modal-net-vlan" min="1" max="4094" placeholder="10" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500 font-mono font-bold">
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-slate-400">Gateway / Subnetz CIDR</label>
+            <button type="button" onclick="autoCalculateDhcpRange()" class="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1 transition">
+              <i class="fa-solid fa-wand-magic-sparkles text-[10px]"></i> DHCP-Bereich vorschlagen
+            </button>
+          </div>
+          <input type="text" id="modal-net-cidr" placeholder="z.B. 192.168.10.1/24" onchange="autoCalculateDhcpRange()" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500 font-mono">
+        </div>
+
+        <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-medium text-slate-300">DHCP-Server auf UCG aktivieren</span>
+            <input type="checkbox" id="modal-net-dhcp-enabled" class="rounded bg-slate-900 border-slate-700 text-sky-500 focus:ring-0 w-4 h-4" onchange="toggleModalDhcpFields()">
+          </div>
+
+          <div id="modal-net-dhcp-inputs" class="grid grid-cols-2 gap-3 pt-1">
+            <div>
+              <label class="block text-slate-400 mb-1">DHCP Start-IP</label>
+              <input type="text" id="modal-net-dhcp-start" placeholder="z.B. 192.168.10.10" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs">
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1">DHCP Stop-IP</label>
+              <input type="text" id="modal-net-dhcp-stop" placeholder="z.B. 192.168.10.250" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs">
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 mb-1">Netzwerktyp</label>
+            <select id="modal-net-purpose" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+              <option value="corporate">Standard (Corporate / Intern)</option>
+              <option value="guest">Gast-Netzwerk (Isoliert)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Domain Name</label>
+            <input type="text" id="modal-net-domain" placeholder="local" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500 font-mono">
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+        <button onclick="closeEditNetworkModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">Abbrechen</button>
+        <button onclick="saveNetworkModal()" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center gap-1.5">
+          <i class="fa-solid fa-check"></i> Speichern &amp; Übernehmen
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Feste Client-IP (Fixed IP) anpassen oder neu anlegen -->
+  <div id="edit-fixedip-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-emerald-800/60 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <h3 class="text-sm font-semibold text-emerald-300 flex items-center gap-2">
+          <i class="fa-solid fa-address-card text-emerald-400"></i> <span id="modal-fip-title">Feste IP &amp; MAC anpassen</span>
+        </h3>
+        <button onclick="closeEditFixedIpModal()" class="text-slate-400 hover:text-slate-200 text-lg">&times;</button>
+      </div>
+
+      <input type="hidden" id="modal-fip-index" value="-1">
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">Gerätename / Hostname</label>
+          <input type="text" id="modal-fip-name" placeholder="z.B. Synology-DiskStation" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500 font-semibold">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 mb-1">Feste IP-Adresse</label>
+            <input type="text" id="modal-fip-ip" placeholder="z.B. 192.168.10.50" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono font-bold text-emerald-400">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">MAC-Adresse</label>
+            <input type="text" id="modal-fip-mac" placeholder="z.B. 00:11:22:33:44:55" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 mb-1">Zugeordnetes UniFi Netzwerk</label>
+          <select id="modal-fip-network" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-emerald-500">
+            <!-- Dynamisch befüllt -->
+          </select>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+        <button onclick="closeEditFixedIpModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">Abbrechen</button>
+        <button onclick="saveFixedIpModal()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5">
           <i class="fa-solid fa-check"></i> Speichern &amp; Übernehmen
         </button>
       </div>
@@ -1761,18 +1905,40 @@
       }
     }
 
+    let currentNetworks = [];
+    let currentFixedIps = [];
+
     function renderUnifiReview(u) {
       if (!u) return;
 
+      currentNetworks = u.networks || [];
+      currentFixedIps = u.fixed_ips || [];
+
       // Networks
       const netTbody = document.getElementById('unifi-networks-tbody');
-      netTbody.innerHTML = u.networks.map(n => `
+      netTbody.innerHTML = u.networks.map((n, idx) => `
         <tr class="hover:bg-slate-800/40">
-          <td class="py-2 px-3 font-semibold text-sky-300">${n.name}</td>
-          <td class="py-2 px-3 font-mono text-slate-300">${n.vlan_id}</td>
-          <td class="py-2 px-3 font-mono text-slate-200">${n.gateway_cidr}</td>
-          <td class="py-2 px-3"><span class="px-2 py-0.5 rounded ${n.dhcp_enabled ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-800 text-slate-400'}">${n.dhcp_enabled ? 'Aktiv' : 'Manuell'}</span></td>
-          <td class="py-2 px-3 font-mono text-slate-400">${n.dhcp_range}</td>
+          <td class="py-2.5 px-3 font-semibold text-sky-300 flex items-center gap-2">
+            <i class="fa-solid fa-network-wired text-sky-400"></i> ${n.name}
+          </td>
+          <td class="py-2.5 px-3 font-mono font-bold text-slate-200">
+            <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">VLAN ${n.vlan_id}</span>
+          </td>
+          <td class="py-2.5 px-3 font-mono text-slate-200 font-medium">${n.gateway_cidr}</td>
+          <td class="py-2.5 px-3">
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold ${n.dhcp_enabled ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-800 text-slate-400'}">
+              ${n.dhcp_enabled ? 'Aktiv' : 'Manuell'}
+            </span>
+          </td>
+          <td class="py-2.5 px-3 font-mono text-slate-300 text-xs">${n.dhcp_range || (n.dhcp_start && n.dhcp_stop ? n.dhcp_start + ' - ' + n.dhcp_stop : 'Statisch')}</td>
+          <td class="py-2.5 px-3 text-right whitespace-nowrap">
+            <button onclick="openEditNetworkModal(${idx})" class="px-2.5 py-1 rounded bg-sky-950 hover:bg-sky-900 border border-sky-800 text-sky-300 text-xs font-medium inline-flex items-center gap-1 transition" title="Netzwerk / VLAN anpassen">
+              <i class="fa-solid fa-pen-to-square"></i> Anpassen
+            </button>
+            <button onclick="deleteNetwork(${idx})" class="px-2 py-1 rounded bg-slate-800 hover:bg-red-950 border border-slate-700 hover:border-red-800 text-slate-400 hover:text-red-300 text-xs inline-flex items-center transition ml-1" title="Netzwerk löschen">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </td>
         </tr>
       `).join('');
 
@@ -1803,14 +1969,241 @@
 
       // Fixed IPs
       const fixedTbody = document.getElementById('unifi-fixedips-tbody');
-      fixedTbody.innerHTML = u.fixed_ips.map(f => `
+      fixedTbody.innerHTML = u.fixed_ips.map((f, idx) => `
         <tr class="hover:bg-slate-800/40">
-          <td class="py-2 px-3 font-medium text-slate-200">${f.name}</td>
-          <td class="py-2 px-3 font-mono text-emerald-400">${f.fixed_ip}</td>
-          <td class="py-2 px-3 font-mono text-slate-400">${f.mac}</td>
-          <td class="py-2 px-3 text-slate-400">${f.network_name}</td>
+          <td class="py-2 px-3 font-medium text-slate-200 flex items-center gap-1.5">
+            <i class="fa-solid fa-desktop text-slate-400 text-xs"></i> ${f.name}
+          </td>
+          <td class="py-2 px-3 font-mono font-bold text-emerald-400">${f.fixed_ip}</td>
+          <td class="py-2 px-3 font-mono text-slate-300">${f.mac}</td>
+          <td class="py-2 px-3 text-sky-300 font-medium">${f.network_name}</td>
+          <td class="py-2 px-3 text-right whitespace-nowrap">
+            <button onclick="openEditFixedIpModal(${idx})" class="px-2 py-0.5 rounded bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-[11px] font-medium inline-flex items-center gap-1 transition" title="Feste IP / MAC anpassen">
+              <i class="fa-solid fa-pen"></i> Anpassen
+            </button>
+            <button onclick="deleteFixedIp(${idx})" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-red-950 border border-slate-700 hover:border-red-800 text-slate-400 hover:text-red-300 text-[11px] inline-flex items-center transition ml-1" title="Löschen">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </td>
         </tr>
       `).join('');
+
+    function openEditNetworkModal(idx) {
+      if (idx < 0 || idx >= currentNetworks.length) return;
+      const n = currentNetworks[idx];
+      document.getElementById('modal-net-index').value = idx;
+      document.getElementById('modal-net-title').innerText = `Netzwerk anpassen: ${n.name}`;
+      document.getElementById('modal-net-name').value = n.name || '';
+      document.getElementById('modal-net-vlan').value = n.vlan_id || 1;
+      document.getElementById('modal-net-cidr').value = n.gateway_cidr || '';
+      document.getElementById('modal-net-dhcp-enabled').checked = !!n.dhcp_enabled;
+      document.getElementById('modal-net-dhcp-start').value = n.dhcp_start || '';
+      document.getElementById('modal-net-dhcp-stop').value = n.dhcp_stop || '';
+      document.getElementById('modal-net-purpose').value = n.purpose || 'corporate';
+      document.getElementById('modal-net-domain').value = n.domain_name || 'local';
+      toggleModalDhcpFields();
+      document.getElementById('edit-network-modal').classList.remove('hidden');
+    }
+
+    function openAddNetworkModal() {
+      document.getElementById('modal-net-index').value = -1;
+      document.getElementById('modal-net-title').innerText = 'Neues Netzwerk / VLAN anlegen';
+      document.getElementById('modal-net-name').value = '';
+      document.getElementById('modal-net-vlan').value = 100;
+      document.getElementById('modal-net-cidr').value = '192.168.100.1/24';
+      document.getElementById('modal-net-dhcp-enabled').checked = true;
+      document.getElementById('modal-net-dhcp-start').value = '192.168.100.10';
+      document.getElementById('modal-net-dhcp-stop').value = '192.168.100.250';
+      document.getElementById('modal-net-purpose').value = 'corporate';
+      document.getElementById('modal-net-domain').value = 'local';
+      toggleModalDhcpFields();
+      document.getElementById('edit-network-modal').classList.remove('hidden');
+    }
+
+    function closeEditNetworkModal() {
+      document.getElementById('edit-network-modal').classList.add('hidden');
+    }
+
+    function toggleModalDhcpFields() {
+      const en = document.getElementById('modal-net-dhcp-enabled').checked;
+      const box = document.getElementById('modal-net-dhcp-inputs');
+      if (box) {
+        box.style.opacity = en ? '1' : '0.4';
+        box.style.pointerEvents = en ? 'auto' : 'none';
+      }
+    }
+
+    function autoCalculateDhcpRange() {
+      const cidr = (document.getElementById('modal-net-cidr').value || '').trim();
+      if (!cidr || !cidr.includes('/')) return;
+      const ip = cidr.split('/')[0].trim();
+      const parts = ip.split('.');
+      if (parts.length === 4) {
+        const prefix = `${parts[0]}.${parts[1]}.${parts[2]}`;
+        const curStart = document.getElementById('modal-net-dhcp-start').value;
+        const curStop = document.getElementById('modal-net-dhcp-stop').value;
+        if (!curStart || curStart.indexOf(prefix) !== 0) {
+          document.getElementById('modal-net-dhcp-start').value = `${prefix}.10`;
+        }
+        if (!curStop || curStop.indexOf(prefix) !== 0) {
+          document.getElementById('modal-net-dhcp-stop').value = `${prefix}.250`;
+        }
+      }
+    }
+
+    async function saveNetworkModal() {
+      const idx = parseInt(document.getElementById('modal-net-index').value);
+      const name = document.getElementById('modal-net-name').value.trim();
+      const vlan_id = parseInt(document.getElementById('modal-net-vlan').value);
+      const gateway_cidr = document.getElementById('modal-net-cidr').value.trim();
+      const dhcp_enabled = document.getElementById('modal-net-dhcp-enabled').checked;
+      const dhcp_start = document.getElementById('modal-net-dhcp-start').value.trim();
+      const dhcp_stop = document.getElementById('modal-net-dhcp-stop').value.trim();
+      const purpose = document.getElementById('modal-net-purpose').value;
+      const domain_name = document.getElementById('modal-net-domain').value.trim();
+
+      if (!name) { showToast('Netzwerkname darf nicht leer sein.', true); return; }
+      if (isNaN(vlan_id) || vlan_id < 1 || vlan_id > 4094) { showToast('VLAN ID muss zwischen 1 und 4094 liegen.', true); return; }
+      if (!gateway_cidr.includes('/')) { showToast('Gateway muss CIDR enthalten (z.B. 192.168.10.1/24).', true); return; }
+
+      const netData = { name, vlan_id, gateway_cidr, dhcp_enabled, dhcp_start, dhcp_stop, purpose, domain_name };
+      const endpoint = idx >= 0 ? '/api/networks/update' : '/api/networks/add';
+      const payload = idx >= 0 ? { index: idx, network: netData } : { network: netData };
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeEditNetworkModal();
+          renderUnifiReview(data.unifi_mapped);
+          showToast(data.message || 'Netzwerk erfolgreich gespeichert!');
+        } else {
+          showToast(data.error || 'Fehler beim Speichern des Netzwerks', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    async function deleteNetwork(idx) {
+      if (idx < 0 || idx >= currentNetworks.length) return;
+      const n = currentNetworks[idx];
+      if (!confirm(`Möchten Sie das Netzwerk '${n.name}' (VLAN ${n.vlan_id}) wirklich löschen?`)) return;
+
+      try {
+        const res = await fetch('/api/networks/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ index: idx })
+        });
+        const data = await res.json();
+        if (data.success) {
+          renderUnifiReview(data.unifi_mapped);
+          showToast(data.message || 'Netzwerk gelöscht!');
+        } else {
+          showToast(data.error || 'Fehler beim Löschen', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    function openEditFixedIpModal(idx) {
+      if (idx < 0 || idx >= currentFixedIps.length) return;
+      const f = currentFixedIps[idx];
+      document.getElementById('modal-fip-index').value = idx;
+      document.getElementById('modal-fip-title').innerText = `Feste IP anpassen: ${f.name}`;
+      document.getElementById('modal-fip-name').value = f.name || '';
+      document.getElementById('modal-fip-ip').value = f.fixed_ip || '';
+      document.getElementById('modal-fip-mac').value = f.mac || '';
+
+      const selNet = document.getElementById('modal-fip-network');
+      selNet.innerHTML = currentNetworks.map(n => `
+        <option value="${n.name}" ${n.name === f.network_name ? 'selected' : ''}>${n.name} (VLAN ${n.vlan_id})</option>
+      `).join('');
+
+      document.getElementById('edit-fixedip-modal').classList.remove('hidden');
+    }
+
+    function openAddFixedIpModal() {
+      document.getElementById('modal-fip-index').value = -1;
+      document.getElementById('modal-fip-title').innerText = 'Neue feste IP reservieren';
+      document.getElementById('modal-fip-name').value = '';
+      document.getElementById('modal-fip-ip').value = '';
+      document.getElementById('modal-fip-mac').value = '';
+
+      const selNet = document.getElementById('modal-fip-network');
+      selNet.innerHTML = currentNetworks.map(n => `
+        <option value="${n.name}">${n.name} (VLAN ${n.vlan_id})</option>
+      `).join('');
+
+      document.getElementById('edit-fixedip-modal').classList.remove('hidden');
+    }
+
+    function closeEditFixedIpModal() {
+      document.getElementById('edit-fixedip-modal').classList.add('hidden');
+    }
+
+    async function saveFixedIpModal() {
+      const idx = parseInt(document.getElementById('modal-fip-index').value);
+      const name = document.getElementById('modal-fip-name').value.trim();
+      const fixed_ip = document.getElementById('modal-fip-ip').value.trim();
+      const mac = document.getElementById('modal-fip-mac').value.trim();
+      const network_name = document.getElementById('modal-fip-network').value;
+
+      if (!name) { showToast('Gerätename darf nicht leer sein.', true); return; }
+      if (!fixed_ip) { showToast('IP-Adresse darf nicht leer sein.', true); return; }
+      if (!mac) { showToast('MAC-Adresse darf nicht leer sein.', true); return; }
+
+      const fipData = { name, fixed_ip, mac, network_name };
+      const endpoint = idx >= 0 ? '/api/fixed-ips/update' : '/api/fixed-ips/add';
+      const payload = idx >= 0 ? { index: idx, fixed_ip: fipData } : { fixed_ip: fipData };
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeEditFixedIpModal();
+          renderUnifiReview(data.unifi_mapped);
+          showToast(data.message || 'Feste IP erfolgreich gespeichert!');
+        } else {
+          showToast(data.error || 'Fehler beim Speichern der festen IP', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    async function deleteFixedIp(idx) {
+      if (idx < 0 || idx >= currentFixedIps.length) return;
+      const f = currentFixedIps[idx];
+      if (!confirm(`Möchten Sie die feste IP '${f.name}' (${f.fixed_ip}) wirklich löschen?`)) return;
+
+      try {
+        const res = await fetch('/api/fixed-ips/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ index: idx })
+        });
+        const data = await res.json();
+        if (data.success) {
+          renderUnifiReview(data.unifi_mapped);
+          showToast(data.message || 'Feste IP gelöscht!');
+        } else {
+          showToast(data.error || 'Fehler beim Löschen', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
 
       // DNS Records
       const dnsTbody = document.getElementById('unifi-dns-tbody');
@@ -1976,6 +2369,7 @@
       const port = document.getElementById('src-ucg-port').value;
       const user = document.getElementById('src-ucg-user').value;
       const pass = document.getElementById('src-ucg-pass').value;
+      const apiKey = document.getElementById('src-ucg-apikey')?.value || '';
 
       syncUcgCredentials();
 
@@ -1988,9 +2382,17 @@
         const res = await fetch('/api/sources/fetch-ucg', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ host, port: parseInt(port), username: user, password: pass })
+          body: JSON.stringify({ host, port: parseInt(port), username: user, password: pass, api_key: apiKey || null })
         });
-        const data = await res.json();
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (jsonErr) {
+          showToast(`Server-Antwortfehler (${res.status}): ${text.substring(0, 150)}`, true);
+          return;
+        }
+
         if (data.success) {
           document.getElementById('ucg-source-status').className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800';
           document.getElementById('ucg-source-status').innerText = 'Verbunden (v' + (data.version || 'aktiv') + ')';
@@ -2021,6 +2423,7 @@
       const port = document.getElementById('src-uos-port').value;
       const user = document.getElementById('src-uos-user').value;
       const pass = document.getElementById('src-uos-pass').value;
+      const apiKey = document.getElementById('src-uos-apikey')?.value || '';
 
       const btn = document.getElementById('btn-fetch-uos');
       const origHtml = btn.innerHTML;
@@ -2031,9 +2434,17 @@
         const res = await fetch('/api/sources/fetch-uos', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ host, port: parseInt(port), username: user, password: pass })
+          body: JSON.stringify({ host, port: parseInt(port), username: user, password: pass, api_key: apiKey || null })
         });
-        const data = await res.json();
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (jsonErr) {
+          showToast(`Server-Antwortfehler (${res.status}): ${text.substring(0, 150)}`, true);
+          return;
+        }
+
         if (data.success) {
           document.getElementById('uos-source-status').className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800';
           document.getElementById('uos-source-status').innerText = 'Verbunden (v' + (data.version || 'aktiv') + ')';

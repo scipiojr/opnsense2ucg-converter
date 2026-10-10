@@ -16,7 +16,14 @@ from starlette.staticfiles import StaticFiles
 
 logger = logging.getLogger(__name__)
 
-from src.models import OPNsenseConfig, UniFiTargetConfig, UniFiSourceState, ReconciliationReport
+from src.models import (
+    OPNsenseConfig,
+    UniFiTargetConfig,
+    UniFiSourceState,
+    ReconciliationReport,
+    UniFiNetwork,
+    UniFiFixedIp,
+)
 from src.opnsense.parser import OPNsenseParser
 from src.sanitizer.masker import SanitizerVault
 from src.translator.mapper import UniFiMapper
@@ -40,6 +47,20 @@ class SessionState:
     uos_filename: str = ""
     uos_state: Optional[UniFiSourceState] = None
     reconciliation_report: Optional[ReconciliationReport] = None
+
+    def reset(self):
+        self.raw_xml = ""
+        self.opnsense_filename = ""
+        self.opnsense_cfg = None
+        self.vault = SanitizerVault()
+        self.unifi_cfg = None
+        self.llm_explanation = ""
+        self.llm_recommendations = []
+        self.ucg_filename = ""
+        self.ucg_state = None
+        self.uos_filename = ""
+        self.uos_state = None
+        self.reconciliation_report = None
 
 
 state = SessionState()
@@ -170,7 +191,11 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "vlan_id": n.vlan_id,
                 "gateway_cidr": n.gateway_cidr,
                 "dhcp_enabled": n.dhcp_enabled,
-                "dhcp_range": f"{n.dhcp_start} - {n.dhcp_stop}" if n.dhcp_enabled else "Static",
+                "dhcp_start": getattr(n, "dhcp_start", "") or "",
+                "dhcp_stop": getattr(n, "dhcp_stop", "") or "",
+                "dhcp_range": f"{n.dhcp_start} - {n.dhcp_stop}" if n.dhcp_enabled and (getattr(n, "dhcp_start", "") or getattr(n, "dhcp_stop", "")) else ("DHCP Aktiv" if n.dhcp_enabled else "Manuell / Statisch"),
+                "purpose": getattr(n, "purpose", "corporate") or "corporate",
+                "domain_name": getattr(n, "domain_name", "local") or "local",
             }
             for n in state.unifi_cfg.networks
         ],
@@ -665,7 +690,8 @@ async def fetch_ucg_live_api(request: Request) -> JSONResponse:
             "unifi_mapped": unifi_dict,
         })
     except Exception as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+        logger.exception("Error in fetch_ucg_live_api")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
 
 
 async def fetch_uos_live_api(request: Request) -> JSONResponse:
@@ -707,7 +733,8 @@ async def fetch_uos_live_api(request: Request) -> JSONResponse:
             "unifi_mapped": unifi_dict,
         })
     except Exception as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+        logger.exception("Error in fetch_uos_live_api")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
 
 
 async def reconcile_sources_api(request: Request) -> JSONResponse:
@@ -870,13 +897,204 @@ async def unify_all_api(request: Request) -> JSONResponse:
 
 async def export_unified_json_api(request: Request) -> JSONResponse:
     if not state.unifi_cfg:
-        return JSONResponse({"success": False, "error": "Keine vereinte Konfiguration vorhanden. Bitte zuerst Dateien laden."}, status_code=400)
+        return JSONResponse({"success": False, "error": "Keine vereinte Konfiguration vorhanden. Bitte zuerst Dateien laden."}, status_code=200)
 
     cfg_dict = get_unifi_config_dict()
     return JSONResponse(
         cfg_dict,
         headers={"Content-Disposition": "attachment; filename=unifi_unified_config.json"}
     )
+
+
+async def update_network_api(request: Request) -> JSONResponse:
+    try:
+        body = await request.json()
+        idx = int(body.get("index", -1))
+        net_data = body.get("network", {})
+        if not state.unifi_cfg or idx < 0 or idx >= len(state.unifi_cfg.networks):
+            return JSONResponse({"success": False, "error": "Ungültiger Netzwerk-Index."}, status_code=200)
+
+        target = state.unifi_cfg.networks[idx]
+        old_name = target.name
+        new_name = str(net_data.get("name", target.name)).strip()
+        vlan_id = int(net_data.get("vlan_id", target.vlan_id))
+        gateway_cidr = str(net_data.get("gateway_cidr", target.gateway_cidr)).strip()
+        dhcp_enabled = bool(net_data.get("dhcp_enabled", target.dhcp_enabled))
+        dhcp_start = str(net_data.get("dhcp_start", getattr(target, "dhcp_start", ""))).strip()
+        dhcp_stop = str(net_data.get("dhcp_stop", getattr(target, "dhcp_stop", ""))).strip()
+        purpose = str(net_data.get("purpose", getattr(target, "purpose", "corporate"))).strip()
+        domain_name = str(net_data.get("domain_name", getattr(target, "domain_name", "local"))).strip()
+
+        if not new_name:
+            return JSONResponse({"success": False, "error": "Netzwerkname darf nicht leer sein."}, status_code=200)
+        if vlan_id < 1 or vlan_id > 4094:
+            return JSONResponse({"success": False, "error": "VLAN ID muss zwischen 1 und 4094 liegen."}, status_code=200)
+        if "/" not in gateway_cidr:
+            return JSONResponse({"success": False, "error": "Gateway muss im CIDR-Format sein (z. B. 192.168.10.1/24)."}, status_code=200)
+
+        target.name = new_name
+        target.vlan_id = vlan_id
+        target.gateway_cidr = gateway_cidr
+        target.dhcp_enabled = dhcp_enabled
+        target.dhcp_start = dhcp_start
+        target.dhcp_stop = dhcp_stop
+        target.purpose = purpose
+        target.domain_name = domain_name
+
+        # If network name changed, update associated fixed IPs
+        if old_name != new_name:
+            for f in state.unifi_cfg.fixed_ips:
+                if f.network_name == old_name:
+                    f.network_name = new_name
+
+        return JSONResponse({
+            "success": True,
+            "message": f"Netzwerk '{new_name}' (VLAN {vlan_id}) erfolgreich aktualisiert.",
+            "unifi_mapped": get_unifi_config_dict()
+        })
+    except Exception as e:
+        logger.exception("Error updating network")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def add_network_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "Bitte laden Sie zuerst eine Konfiguration."}, status_code=200)
+        body = await request.json()
+        net_data = body.get("network", {})
+        name = str(net_data.get("name", "")).strip()
+        vlan_id = int(net_data.get("vlan_id", 1))
+        gateway_cidr = str(net_data.get("gateway_cidr", "192.168.1.1/24")).strip()
+        dhcp_enabled = bool(net_data.get("dhcp_enabled", True))
+        dhcp_start = str(net_data.get("dhcp_start", "")).strip()
+        dhcp_stop = str(net_data.get("dhcp_stop", "")).strip()
+        purpose = str(net_data.get("purpose", "corporate")).strip()
+        domain_name = str(net_data.get("domain_name", "local")).strip()
+
+        if not name:
+            return JSONResponse({"success": False, "error": "Netzwerkname darf nicht leer sein."}, status_code=200)
+        if any(n.vlan_id == vlan_id for n in state.unifi_cfg.networks):
+            return JSONResponse({"success": False, "error": f"Ein Netzwerk mit VLAN ID {vlan_id} existiert bereits."}, status_code=200)
+
+        new_net = UniFiNetwork(
+            name=name,
+            vlan_id=vlan_id,
+            gateway_cidr=gateway_cidr,
+            purpose=purpose,
+            dhcp_enabled=dhcp_enabled,
+            dhcp_start=dhcp_start,
+            dhcp_stop=dhcp_stop,
+            domain_name=domain_name,
+        )
+        state.unifi_cfg.networks.append(new_net)
+        return JSONResponse({
+            "success": True,
+            "message": f"Netzwerk '{name}' (VLAN {vlan_id}) hinzugefügt.",
+            "unifi_mapped": get_unifi_config_dict()
+        })
+    except Exception as e:
+        logger.exception("Error adding network")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def delete_network_api(request: Request) -> JSONResponse:
+    try:
+        body = await request.json()
+        idx = int(body.get("index", -1))
+        if not state.unifi_cfg or idx < 0 or idx >= len(state.unifi_cfg.networks):
+            return JSONResponse({"success": False, "error": "Ungültiger Netzwerk-Index."}, status_code=200)
+        deleted = state.unifi_cfg.networks.pop(idx)
+        return JSONResponse({
+            "success": True,
+            "message": f"Netzwerk '{deleted.name}' gelöscht.",
+            "unifi_mapped": get_unifi_config_dict()
+        })
+    except Exception as e:
+        logger.exception("Error deleting network")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def update_fixed_ip_api(request: Request) -> JSONResponse:
+    try:
+        body = await request.json()
+        idx = int(body.get("index", -1))
+        f_data = body.get("fixed_ip", {})
+        if not state.unifi_cfg or idx < 0 or idx >= len(state.unifi_cfg.fixed_ips):
+            return JSONResponse({"success": False, "error": "Ungültiger Index für feste IP."}, status_code=200)
+
+        target = state.unifi_cfg.fixed_ips[idx]
+        mac = str(f_data.get("mac", target.mac)).strip().lower()
+        name = str(f_data.get("name", target.name)).strip()
+        fixed_ip = str(f_data.get("fixed_ip", target.fixed_ip)).strip()
+        network_name = str(f_data.get("network_name", target.network_name)).strip()
+
+        if not mac:
+            return JSONResponse({"success": False, "error": "MAC-Adresse darf nicht leer sein."}, status_code=200)
+        if not fixed_ip:
+            return JSONResponse({"success": False, "error": "IP-Adresse darf nicht leer sein."}, status_code=200)
+
+        target.mac = mac
+        target.name = name or "Gerät"
+        target.fixed_ip = fixed_ip
+        target.network_name = network_name
+
+        return JSONResponse({
+            "success": True,
+            "message": f"Feste IP für '{target.name}' ({fixed_ip}) erfolgreich aktualisiert.",
+            "unifi_mapped": get_unifi_config_dict()
+        })
+    except Exception as e:
+        logger.exception("Error updating fixed IP")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def add_fixed_ip_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "Bitte laden Sie zuerst eine Konfiguration."}, status_code=200)
+        body = await request.json()
+        f_data = body.get("fixed_ip", {})
+        mac = str(f_data.get("mac", "")).strip().lower()
+        name = str(f_data.get("name", "Neues Gerät")).strip()
+        fixed_ip = str(f_data.get("fixed_ip", "")).strip()
+        network_name = str(f_data.get("network_name", "")).strip()
+
+        if not mac or not fixed_ip:
+            return JSONResponse({"success": False, "error": "MAC-Adresse und IP-Adresse sind erforderlich."}, status_code=200)
+
+        new_fip = UniFiFixedIp(
+            mac=mac,
+            name=name,
+            fixed_ip=fixed_ip,
+            network_name=network_name or (state.unifi_cfg.networks[0].name if state.unifi_cfg.networks else "Default")
+        )
+        state.unifi_cfg.fixed_ips.append(new_fip)
+        return JSONResponse({
+            "success": True,
+            "message": f"Feste IP für '{name}' ({fixed_ip}) hinzugefügt.",
+            "unifi_mapped": get_unifi_config_dict()
+        })
+    except Exception as e:
+        logger.exception("Error adding fixed IP")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def delete_fixed_ip_api(request: Request) -> JSONResponse:
+    try:
+        body = await request.json()
+        idx = int(body.get("index", -1))
+        if not state.unifi_cfg or idx < 0 or idx >= len(state.unifi_cfg.fixed_ips):
+            return JSONResponse({"success": False, "error": "Ungültiger Index."}, status_code=200)
+        deleted = state.unifi_cfg.fixed_ips.pop(idx)
+        return JSONResponse({
+            "success": True,
+            "message": f"Feste IP für '{deleted.name}' gelöscht.",
+            "unifi_mapped": get_unifi_config_dict()
+        })
+    except Exception as e:
+        logger.exception("Error deleting fixed IP")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
 
 
 routes = [
@@ -902,6 +1120,12 @@ routes = [
     Route("/api/sources/upload-export", endpoint=upload_export_file_api, methods=["POST"]),
     Route("/api/sources/unify-all", endpoint=unify_all_api, methods=["POST"]),
     Route("/api/sources/export-unified-json", endpoint=export_unified_json_api, methods=["GET"]),
+    Route("/api/networks/update", endpoint=update_network_api, methods=["POST"]),
+    Route("/api/networks/add", endpoint=add_network_api, methods=["POST"]),
+    Route("/api/networks/delete", endpoint=delete_network_api, methods=["POST"]),
+    Route("/api/fixed-ips/update", endpoint=update_fixed_ip_api, methods=["POST"]),
+    Route("/api/fixed-ips/add", endpoint=add_fixed_ip_api, methods=["POST"]),
+    Route("/api/fixed-ips/delete", endpoint=delete_fixed_ip_api, methods=["POST"]),
 ]
 
 app = Starlette(debug=True, routes=routes)
