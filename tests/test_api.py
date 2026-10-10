@@ -306,7 +306,37 @@ def test_network_and_fixed_ip_editing():
     print("SUCCESS: Network & Fixed IP customization tests (VLAN ID, CIDR, DHCP Range, MAC, IP) passed cleanly!")
 
 
+def test_unifi_config_dict_fallback_and_uos_safety():
+    state.reset()
+    assert state.unifi_cfg is None
+
+    # 1. Uninitialized state should still return full schema, never empty dict
+    cfg_dict = get_unifi_config_dict()
+    assert isinstance(cfg_dict, dict)
+    for key in ["networks", "fixed_ips", "firewall_rules", "firewall_groups", "port_forwards", "dns_records", "wlans"]:
+        assert key in cfg_dict, f"Key '{key}' must be present in unifi config dict"
+        assert isinstance(cfg_dict[key], list), f"Value for '{key}' must be a list"
+
+    # 2. When only UOS is loaded, wlans should be populated and networks should be safe list
+    from src.models import UniFiSourceState, UniFiWlan
+    mock_uos = UniFiSourceState(source_type="uos_server")
+    mock_uos.wlans = [UniFiWlan(name="Home-WLAN", security="wpapsk", vlan_id=10)]
+    mock_uos.clients = [{"mac": "11:22:33:44:55:66", "name": "Printer", "fixed_ip": "192.168.1.50", "use_fixedip": True}]
+    state.uos_state = mock_uos
+
+    cfg_dict2 = get_unifi_config_dict()
+    assert isinstance(cfg_dict2["networks"], list)
+    assert len(cfg_dict2["networks"]) == 0
+    assert len(cfg_dict2["wlans"]) == 1
+    assert cfg_dict2["wlans"][0]["name"] == "Home-WLAN"
+    assert len(cfg_dict2["fixed_ips"]) == 1
+    assert cfg_dict2["fixed_ips"][0]["mac"] == "11:22:33:44:55:66"
+
+    print("SUCCESS: Defensive UniFi config fallback & UOS schema safety tests passed cleanly!")
+
+
 if __name__ == "__main__":
     test_core_flow()
     test_upload_export_and_unify_apis()
     test_network_and_fixed_ip_editing()
+    test_unifi_config_dict_fallback_and_uos_safety()

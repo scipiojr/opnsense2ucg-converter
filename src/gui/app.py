@@ -183,7 +183,122 @@ async def process_xml(xml_content: str) -> JSONResponse:
 
 def get_unifi_config_dict() -> Dict[str, Any]:
     if not state.unifi_cfg:
-        return {}
+        rep = state.reconciliation_report
+        wlans_from_sources = []
+        if state.uos_state and state.uos_state.wlans:
+            wlans_from_sources = [
+                {
+                    "name": w.name,
+                    "security": w.security,
+                    "vlan_id": w.vlan_id,
+                    "is_guest": w.is_guest,
+                    "enabled": getattr(w, "enabled", True),
+                }
+                for w in state.uos_state.wlans
+            ]
+        elif state.ucg_state and state.ucg_state.wlans:
+            wlans_from_sources = [
+                {
+                    "name": w.name,
+                    "security": w.security,
+                    "vlan_id": w.vlan_id,
+                    "is_guest": w.is_guest,
+                    "enabled": getattr(w, "enabled", True),
+                }
+                for w in state.ucg_state.wlans
+            ]
+
+        networks_from_sources = []
+        if state.ucg_state and state.ucg_state.networks:
+            for n in state.ucg_state.networks:
+                if isinstance(n, dict):
+                    dhcp_en = n.get("dhcpd_enabled", n.get("dhcp_enabled", True))
+                    d_start = n.get("dhcpd_start", n.get("dhcp_start", "")) or ""
+                    d_stop = n.get("dhcpd_stop", n.get("dhcp_stop", "")) or ""
+                    d_range = f"{d_start} - {d_stop}" if dhcp_en and (d_start or d_stop) else ("DHCP Aktiv" if dhcp_en else "Manuell / Statisch")
+                    networks_from_sources.append({
+                        "name": n.get("name", "UCG-Net"),
+                        "vlan_id": n.get("vlan", n.get("vlan_id", 1)),
+                        "gateway_cidr": n.get("ip_subnet", n.get("gateway_cidr", "")),
+                        "dhcp_enabled": dhcp_en,
+                        "dhcp_start": d_start,
+                        "dhcp_stop": d_stop,
+                        "dhcp_range": d_range,
+                        "purpose": n.get("purpose", "corporate"),
+                        "domain_name": n.get("domain_name", "local"),
+                    })
+                else:
+                    d_start = getattr(n, "dhcp_start", "") or ""
+                    d_stop = getattr(n, "dhcp_stop", "") or ""
+                    d_range = f"{d_start} - {d_stop}" if n.dhcp_enabled and (d_start or d_stop) else ("DHCP Aktiv" if n.dhcp_enabled else "Manuell / Statisch")
+                    networks_from_sources.append({
+                        "name": n.name,
+                        "vlan_id": n.vlan_id,
+                        "gateway_cidr": n.gateway_cidr,
+                        "dhcp_enabled": n.dhcp_enabled,
+                        "dhcp_start": d_start,
+                        "dhcp_stop": d_stop,
+                        "dhcp_range": d_range,
+                        "purpose": getattr(n, "purpose", "corporate") or "corporate",
+                        "domain_name": getattr(n, "domain_name", "local") or "local",
+                    })
+
+        fixed_from_sources = []
+        src_clients = (state.ucg_state.clients if state.ucg_state else []) + (state.uos_state.clients if state.uos_state else [])
+        for c in src_clients:
+            if isinstance(c, dict):
+                if c.get("use_fixedip") or c.get("fixed_ip"):
+                    fixed_from_sources.append({
+                        "mac": c.get("mac", ""),
+                        "name": c.get("name") or c.get("hostname") or "Client",
+                        "fixed_ip": c.get("fixed_ip", ""),
+                        "network_name": c.get("network_name", "Default"),
+                    })
+            else:
+                if getattr(c, "use_fixedip", False) or getattr(c, "fixed_ip", None):
+                    fixed_from_sources.append({
+                        "mac": getattr(c, "mac", ""),
+                        "name": getattr(c, "name", "") or getattr(c, "hostname", "") or "Client",
+                        "fixed_ip": getattr(c, "fixed_ip", "") or "",
+                        "network_name": getattr(c, "network_name", "Default") or "Default",
+                    })
+
+        return {
+            "networks": networks_from_sources,
+            "firewall_groups": [],
+            "firewall_rules": [],
+            "fixed_ips": fixed_from_sources,
+            "port_forwards": [],
+            "dns_records": [],
+            "traffic_rules": [],
+            "wireguard_servers": [],
+            "smart_queue": None,
+            "omitted_items": [],
+            "wlans": wlans_from_sources,
+            "reconciliation": (
+                {
+                    "ucg_connected": rep.ucg_connected,
+                    "uos_connected": rep.uos_connected,
+                    "ucg_version": rep.ucg_version,
+                    "uos_version": rep.uos_version,
+                    "summary": rep.summary,
+                    "items": [
+                        {
+                            "category": item.category,
+                            "key": item.key,
+                            "opnsense_val": item.opnsense_val,
+                            "ucg_val": item.ucg_val,
+                            "uos_val": item.uos_val,
+                            "status": item.status,
+                            "action": item.action,
+                            "explanation": item.explanation,
+                        }
+                        for item in rep.items
+                    ],
+                }
+                if rep else None
+            ),
+        }
     return {
         "networks": [
             {
@@ -729,6 +844,7 @@ async def fetch_uos_live_api(request: Request) -> JSONResponse:
             "summary": live_state.raw_summary,
             "wlans_count": len(live_state.wlans),
             "devices_count": len(live_state.devices),
+            "wlans": unifi_dict.get("wlans", []),
             "reconciliation": unifi_dict.get("reconciliation"),
             "unifi_mapped": unifi_dict,
         })

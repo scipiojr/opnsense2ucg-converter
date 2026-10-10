@@ -1913,81 +1913,163 @@
 
       currentNetworks = u.networks || [];
       currentFixedIps = u.fixed_ips || [];
+      currentRules = u.firewall_rules || [];
+      const groups = u.firewall_groups || [];
+      const forwards = u.port_forwards || [];
+      const dns = u.dns_records || [];
+      const wlans = u.wlans || [];
 
       // Networks
       const netTbody = document.getElementById('unifi-networks-tbody');
-      netTbody.innerHTML = u.networks.map((n, idx) => `
-        <tr class="hover:bg-slate-800/40">
-          <td class="py-2.5 px-3 font-semibold text-sky-300 flex items-center gap-2">
-            <i class="fa-solid fa-network-wired text-sky-400"></i> ${n.name}
-          </td>
-          <td class="py-2.5 px-3 font-mono font-bold text-slate-200">
-            <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">VLAN ${n.vlan_id}</span>
-          </td>
-          <td class="py-2.5 px-3 font-mono text-slate-200 font-medium">${n.gateway_cidr}</td>
-          <td class="py-2.5 px-3">
-            <span class="px-2 py-0.5 rounded text-[10px] font-semibold ${n.dhcp_enabled ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-800 text-slate-400'}">
-              ${n.dhcp_enabled ? 'Aktiv' : 'Manuell'}
-            </span>
-          </td>
-          <td class="py-2.5 px-3 font-mono text-slate-300 text-xs">${n.dhcp_range || (n.dhcp_start && n.dhcp_stop ? n.dhcp_start + ' - ' + n.dhcp_stop : 'Statisch')}</td>
-          <td class="py-2.5 px-3 text-right whitespace-nowrap">
-            <button onclick="openEditNetworkModal(${idx})" class="px-2.5 py-1 rounded bg-sky-950 hover:bg-sky-900 border border-sky-800 text-sky-300 text-xs font-medium inline-flex items-center gap-1 transition" title="Netzwerk / VLAN anpassen">
-              <i class="fa-solid fa-pen-to-square"></i> Anpassen
-            </button>
-            <button onclick="deleteNetwork(${idx})" class="px-2 py-1 rounded bg-slate-800 hover:bg-red-950 border border-slate-700 hover:border-red-800 text-slate-400 hover:text-red-300 text-xs inline-flex items-center transition ml-1" title="Netzwerk löschen">
-              <i class="fa-solid fa-trash"></i>
-            </button>
-          </td>
-        </tr>
-      `).join('');
+      if (netTbody) {
+        if (currentNetworks.length === 0) {
+          netTbody.innerHTML = '<tr><td colspan="6" class="py-3 text-center text-slate-500">Keine Netzwerke geladen.</td></tr>';
+        } else {
+          netTbody.innerHTML = currentNetworks.map((n, idx) => `
+            <tr class="hover:bg-slate-800/40">
+              <td class="py-2.5 px-3 font-semibold text-sky-300 flex items-center gap-2">
+                <i class="fa-solid fa-network-wired text-sky-400"></i> ${n.name}
+              </td>
+              <td class="py-2.5 px-3 font-mono font-bold text-slate-200">
+                <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">VLAN ${n.vlan_id}</span>
+              </td>
+              <td class="py-2.5 px-3 font-mono text-slate-200 font-medium">${n.gateway_cidr}</td>
+              <td class="py-2.5 px-3">
+                <span class="px-2 py-0.5 rounded text-[10px] font-semibold ${n.dhcp_enabled ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-800 text-slate-400'}">
+                  ${n.dhcp_enabled ? 'Aktiv' : 'Manuell'}
+                </span>
+              </td>
+              <td class="py-2.5 px-3 font-mono text-slate-300 text-xs">${n.dhcp_range || (n.dhcp_start && n.dhcp_stop ? n.dhcp_start + ' - ' + n.dhcp_stop : 'Statisch')}</td>
+              <td class="py-2.5 px-3 text-right whitespace-nowrap">
+                <button onclick="openEditNetworkModal(${idx})" class="px-2.5 py-1 rounded bg-sky-950 hover:bg-sky-900 border border-sky-800 text-sky-300 text-xs font-medium inline-flex items-center gap-1 transition" title="Netzwerk / VLAN anpassen">
+                  <i class="fa-solid fa-pen-to-square"></i> Anpassen
+                </button>
+                <button onclick="deleteNetwork(${idx})" class="px-2 py-1 rounded bg-slate-800 hover:bg-red-950 border border-slate-700 hover:border-red-800 text-slate-400 hover:text-red-300 text-xs inline-flex items-center transition ml-1" title="Netzwerk löschen">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              </td>
+            </tr>
+          `).join('');
+        }
+      }
 
       // Rules
-      currentRules = u.firewall_rules || [];
       renderFilteredRules();
 
       // Groups
       const groupsTbody = document.getElementById('unifi-groups-tbody');
-      groupsTbody.innerHTML = u.firewall_groups.map(g => `
-        <tr class="hover:bg-slate-800/40">
-          <td class="py-2 px-3 font-semibold text-purple-300">${g.name}</td>
-          <td class="py-2 px-3 font-mono text-slate-400">${g.group_type}</td>
-          <td class="py-2 px-3 font-mono text-slate-300">${g.members.join(', ')}</td>
-        </tr>
-      `).join('');
+      if (groupsTbody) {
+        if (groups.length === 0) {
+          groupsTbody.innerHTML = '<tr><td colspan="3" class="py-3 text-center text-slate-500">Keine Gruppen vorhanden.</td></tr>';
+        } else {
+          groupsTbody.innerHTML = groups.map(g => `
+            <tr class="hover:bg-slate-800/40">
+              <td class="py-2 px-3 font-semibold text-purple-300">${g.name}</td>
+              <td class="py-2 px-3 font-mono text-slate-400">${g.group_type}</td>
+              <td class="py-2 px-3 font-mono text-slate-300">${(g.members || []).join(', ')}</td>
+            </tr>
+          `).join('');
+        }
+      }
 
       // Port Forwards
       const fwdTbody = document.getElementById('unifi-forwards-tbody');
-      fwdTbody.innerHTML = u.port_forwards.map(p => `
-        <tr class="hover:bg-slate-800/40">
-          <td class="py-2 px-3 font-medium text-slate-200">${p.name}</td>
-          <td class="py-2 px-3 font-mono text-amber-400">${p.dst_port}</td>
-          <td class="py-2 px-3 font-mono text-slate-300">${p.fwd_ip}:${p.fwd_port}</td>
-          <td class="py-2 px-3 font-mono text-slate-400">${p.protocol}</td>
-        </tr>
-      `).join('');
+      if (fwdTbody) {
+        if (forwards.length === 0) {
+          fwdTbody.innerHTML = '<tr><td colspan="4" class="py-3 text-center text-slate-500">Keine Port-Weiterleitungen vorhanden.</td></tr>';
+        } else {
+          fwdTbody.innerHTML = forwards.map(p => `
+            <tr class="hover:bg-slate-800/40">
+              <td class="py-2 px-3 font-medium text-slate-200">${p.name}</td>
+              <td class="py-2 px-3 font-mono text-amber-400">${p.dst_port}</td>
+              <td class="py-2 px-3 font-mono text-slate-300">${p.fwd_ip}:${p.fwd_port}</td>
+              <td class="py-2 px-3 font-mono text-slate-400">${p.protocol}</td>
+            </tr>
+          `).join('');
+        }
+      }
 
       // Fixed IPs
       const fixedTbody = document.getElementById('unifi-fixedips-tbody');
-      fixedTbody.innerHTML = u.fixed_ips.map((f, idx) => `
-        <tr class="hover:bg-slate-800/40">
-          <td class="py-2 px-3 font-medium text-slate-200 flex items-center gap-1.5">
-            <i class="fa-solid fa-desktop text-slate-400 text-xs"></i> ${f.name}
-          </td>
-          <td class="py-2 px-3 font-mono font-bold text-emerald-400">${f.fixed_ip}</td>
-          <td class="py-2 px-3 font-mono text-slate-300">${f.mac}</td>
-          <td class="py-2 px-3 text-sky-300 font-medium">${f.network_name}</td>
-          <td class="py-2 px-3 text-right whitespace-nowrap">
-            <button onclick="openEditFixedIpModal(${idx})" class="px-2 py-0.5 rounded bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-[11px] font-medium inline-flex items-center gap-1 transition" title="Feste IP / MAC anpassen">
-              <i class="fa-solid fa-pen"></i> Anpassen
-            </button>
-            <button onclick="deleteFixedIp(${idx})" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-red-950 border border-slate-700 hover:border-red-800 text-slate-400 hover:text-red-300 text-[11px] inline-flex items-center transition ml-1" title="Löschen">
-              <i class="fa-solid fa-trash"></i>
-            </button>
-          </td>
-        </tr>
-      `).join('');
+      if (fixedTbody) {
+        if (currentFixedIps.length === 0) {
+          fixedTbody.innerHTML = '<tr><td colspan="5" class="py-3 text-center text-slate-500">Keine festen IP-Reservierungen vorhanden.</td></tr>';
+        } else {
+          fixedTbody.innerHTML = currentFixedIps.map((f, idx) => `
+            <tr class="hover:bg-slate-800/40">
+              <td class="py-2 px-3 font-medium text-slate-200 flex items-center gap-1.5">
+                <i class="fa-solid fa-desktop text-slate-400 text-xs"></i> ${f.name}
+              </td>
+              <td class="py-2 px-3 font-mono font-bold text-emerald-400">${f.fixed_ip}</td>
+              <td class="py-2 px-3 font-mono text-slate-300">${f.mac}</td>
+              <td class="py-2 px-3 text-sky-300 font-medium">${f.network_name}</td>
+              <td class="py-2 px-3 text-right whitespace-nowrap">
+                <button onclick="openEditFixedIpModal(${idx})" class="px-2 py-0.5 rounded bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-[11px] font-medium inline-flex items-center gap-1 transition" title="Feste IP / MAC anpassen">
+                  <i class="fa-solid fa-pen"></i> Anpassen
+                </button>
+                <button onclick="deleteFixedIp(${idx})" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-red-950 border border-slate-700 hover:border-red-800 text-slate-400 hover:text-red-300 text-[11px] inline-flex items-center transition ml-1" title="Löschen">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              </td>
+            </tr>
+          `).join('');
+        }
+      }
 
+      // DNS Records
+      const dnsTbody = document.getElementById('unifi-dns-tbody');
+      if (dnsTbody) {
+        if (dns && dns.length > 0) {
+          dnsTbody.innerHTML = dns.map(d => `
+            <tr class="hover:bg-slate-800/40">
+              <td class="py-2 px-3 font-mono text-sky-300">${d.key}</td>
+              <td class="py-2 px-3 font-mono text-emerald-400">${d.value}</td>
+              <td class="py-2 px-3 font-mono text-slate-400">${d.type}</td>
+            </tr>
+          `).join('');
+        } else {
+          dnsTbody.innerHTML = `<tr><td colspan="3" class="py-3 text-center text-slate-500">Keine statischen DNS Host-Overrides gefunden.</td></tr>`;
+        }
+      }
+
+      // Extended Services
+      const wgEl = document.getElementById('unifi-wg-blueprint');
+      if (wgEl) {
+        if (u.wireguard_servers && u.wireguard_servers.length > 0) {
+          const wg = u.wireguard_servers[0];
+          wgEl.innerText = `${wg.name} (Port ${wg.port}, ${wg.tunnel_subnet})`;
+        } else {
+          wgEl.innerText = 'Kein WireGuard in OPNsense';
+        }
+      }
+
+      const sqEl = document.getElementById('unifi-smartqueue-val');
+      if (sqEl) {
+        if (u.smart_queue && u.smart_queue.enabled) {
+          sqEl.innerText = `${u.smart_queue.down_rate_kbps} kbps Down / ${u.smart_queue.up_rate_kbps} kbps Up`;
+        } else {
+          sqEl.innerText = 'Standard / Automatisch';
+        }
+      }
+
+      const trEl = document.getElementById('unifi-traffic-rules-count');
+      if (trEl) {
+        const trCount = (u.traffic_rules ? u.traffic_rules.length : 0);
+        trEl.innerText = `${trCount} Traffic Rules (Domain/Region)`;
+      }
+
+      // Render Reconciliation & WLANs if available
+      if (u.reconciliation) {
+        renderReconciliation(u.reconciliation);
+      }
+      if (wlans && wlans.length > 0) {
+        renderWlans(wlans);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Network & Fixed IP Modal Editing Handlers
+    // -------------------------------------------------------------------------
     function openEditNetworkModal(idx) {
       if (idx < 0 || idx >= currentNetworks.length) return;
       const n = currentNetworks[idx];
@@ -2205,46 +2287,6 @@
       }
     }
 
-      // DNS Records
-      const dnsTbody = document.getElementById('unifi-dns-tbody');
-      if (u.dns_records && u.dns_records.length > 0) {
-        dnsTbody.innerHTML = u.dns_records.map(d => `
-          <tr class="hover:bg-slate-800/40">
-            <td class="py-2 px-3 font-mono text-sky-300">${d.key}</td>
-            <td class="py-2 px-3 font-mono text-emerald-400">${d.value}</td>
-            <td class="py-2 px-3 font-mono text-slate-400">${d.type}</td>
-          </tr>
-        `).join('');
-      } else {
-        dnsTbody.innerHTML = `<tr><td colspan="3" class="py-3 text-center text-slate-500">Keine statischen DNS Host-Overrides gefunden.</td></tr>`;
-      }
-
-      // Extended Services
-      if (u.wireguard_servers && u.wireguard_servers.length > 0) {
-        const wg = u.wireguard_servers[0];
-        document.getElementById('unifi-wg-blueprint').innerText = `${wg.name} (Port ${wg.port}, ${wg.tunnel_subnet})`;
-      } else {
-        document.getElementById('unifi-wg-blueprint').innerText = 'Kein WireGuard in OPNsense';
-      }
-
-      if (u.smart_queue && u.smart_queue.enabled) {
-        document.getElementById('unifi-smartqueue-val').innerText = `${u.smart_queue.down_rate_kbps} kbps Down / ${u.smart_queue.up_rate_kbps} kbps Up`;
-      } else {
-        document.getElementById('unifi-smartqueue-val').innerText = 'Standard / Automatisch';
-      }
-
-      const trCount = (u.traffic_rules ? u.traffic_rules.length : 0);
-      document.getElementById('unifi-traffic-rules-count').innerText = `${trCount} Traffic Rules (Domain/Region)`;
-
-      // Render Reconciliation & WLANs if available
-      if (u.reconciliation) {
-        renderReconciliation(u.reconciliation);
-      }
-      if (u.wlans) {
-        renderWlans(u.wlans);
-      }
-    }
-
     // -------------------------------------------------------------------------
     // Multi-Source Reconciliation & Merger
     // -------------------------------------------------------------------------
@@ -2451,6 +2493,9 @@
           document.getElementById('src-uos-info').innerText = `${data.wlans_count} WLAN SSIDs, ${data.devices_count} APs/Switche erkannt`;
           showToast('UniFi Server Ist-Zustand & WLANs erfolgreich eingelesen!');
 
+          if (data.wlans) {
+            renderWlans(data.wlans);
+          }
           if (data.reconciliation) {
             renderReconciliation(data.reconciliation);
           }
