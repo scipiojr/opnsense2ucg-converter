@@ -788,16 +788,11 @@ async def fetch_opnsense_live_api(request: Request) -> JSONResponse:
         host = body.get("host", "192.168.1.1")
         port = int(body.get("port", 443))
         protocol = body.get("protocol", "https")
-        api_key = body.get("api_key", "")
-        api_secret = body.get("api_secret", "")
-        username = body.get("username", "")
-        password = body.get("password", "")
-
-        # If user passed key/secret in username/password or vice versa, handle smoothly
-        if not api_key and username:
-            api_key = username
-        if not api_secret and password:
-            api_secret = password
+        auth_mode = body.get("auth_mode", "auto")
+        api_key = (body.get("api_key") or "").strip()
+        api_secret = (body.get("api_secret") or "").strip()
+        username = (body.get("username") or "").strip()
+        password = (body.get("password") or "").strip()
 
         client = OPNsenseClient(
             host=host,
@@ -807,6 +802,7 @@ async def fetch_opnsense_live_api(request: Request) -> JSONResponse:
             api_secret=api_secret,
             username=username,
             password=password,
+            auth_mode=auth_mode,
             verify_ssl=False,
         )
 
@@ -818,7 +814,11 @@ async def fetch_opnsense_live_api(request: Request) -> JSONResponse:
         return JSONResponse(result)
     except Exception as e:
         logger.exception("Error in fetch_opnsense_live_api")
-        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+        err_str = str(e)
+        hint = ""
+        if "401" in err_str or "unauthorized" in err_str.lower() or "falscher benutzername" in err_str.lower():
+            hint = "Tipp: Für Web-Passwörter bitte 'Web-GUI Login' wählen. Für REST-API bitte unter System > Access > Users > [User] > API-Keys (+) einen Schlüssel erzeugen."
+        return JSONResponse({"success": False, "error": err_str, "hint": hint}, status_code=200)
 
 
 async def fetch_ucg_live_api(request: Request) -> JSONResponse:

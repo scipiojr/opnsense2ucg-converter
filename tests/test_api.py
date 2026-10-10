@@ -515,11 +515,12 @@ def test_opnsense_live_fetch():
         xml_data = f.read()
 
     # 1. Test OPNsenseClient initialization & URL cleaning
-    client = OPNsenseClient(host="https://192.168.1.1:8443/", api_key="testkey", api_secret="testsecret")
+    client = OPNsenseClient(host="https://192.168.1.1:8443/", api_key="testkey", api_secret="testsecret", auth_mode="api")
     assert client.host == "192.168.1.1"
     assert client.port == 8443
+    assert client.auth_mode == "api"
 
-    # 2. Test successful fetch_config_xml via API Basic Auth
+    # 2. Test successful fetch_config_xml via REST API Basic Auth
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.text = xml_data
@@ -531,19 +532,51 @@ def test_opnsense_live_fetch():
         args, kwargs = mock_get.call_args
         assert kwargs["auth"] == ("testkey", "testsecret")
 
-    # 3. Test failure raises ConnectionError
+    # 3. Test successful fetch_config_xml via Web GUI Session Login
+    web_client = OPNsenseClient(host="192.168.1.1", username="root", password="mypassword", auth_mode="web")
+    assert web_client.auth_mode == "web"
+
+    # Mock requests.Session for Web GUI Login:
+    # 1st get: /index.php (login page)
+    # 2nd post: /index.php (submit credentials)
+    # 3rd post: /diag_backup.php (download config)
+    mock_login_page_resp = MagicMock()
+    mock_login_page_resp.status_code = 200
+    mock_login_page_resp.text = '<html><form id="iform"><input name="usernamefld"><input name="passwordfld"></form></html>'
+    mock_login_page_resp.history = []
+
+    mock_login_post_resp = MagicMock()
+    mock_login_post_resp.status_code = 200
+    mock_login_post_resp.text = '<html><body class="page-logged-in"><nav>Dashboard</nav></body></html>'
+
+    mock_backup_dl_resp = MagicMock()
+    mock_backup_dl_resp.status_code = 200
+    mock_backup_dl_resp.text = xml_data
+
+    with patch("requests.Session") as MockSessionClass:
+        mock_sess = MockSessionClass.return_value
+        mock_sess.get.return_value = mock_login_page_resp
+        mock_sess.post.side_effect = [mock_login_post_resp, mock_backup_dl_resp]
+        mock_sess.cookies = {}
+
+        fetched_web_xml = web_client.fetch_config_xml()
+        assert fetched_web_xml == xml_data
+        assert mock_sess.post.call_count >= 2
+
+    # 4. Test failure with 401 raises ConnectionError with helpful guidance
     err_resp = MagicMock()
     err_resp.status_code = 401
     err_resp.text = "Unauthorized"
-    bad_client = OPNsenseClient(host="192.168.1.1", api_key="wrong", api_secret="wrong")
+    bad_client = OPNsenseClient(host="192.168.1.1", api_key="wrong", api_secret="wrong", auth_mode="api")
     with patch.object(bad_client.session, "get", return_value=err_resp):
         try:
             bad_client.fetch_config_xml()
             assert False, "Should have raised ConnectionError"
         except ConnectionError as ce:
             assert "401" in str(ce)
+            assert "Web-GUI Login" in str(ce)
 
-    # 4. Test fetch_opnsense_live_api endpoint
+    # 5. Test fetch_opnsense_live_api endpoint with hint on failure
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -554,8 +587,9 @@ def test_opnsense_live_fetch():
         req = MockRequest({
             "host": "192.168.10.1",
             "port": 443,
-            "api_key": "mykey",
-            "api_secret": "mysecret"
+            "auth_mode": "web",
+            "username": "root",
+            "password": "secretpassword"
         })
         api_res = loop.run_until_complete(fetch_opnsense_live_api(req))
         assert api_res.status_code == 200
@@ -568,7 +602,26 @@ def test_opnsense_live_fetch():
         assert state.opnsense_cfg is not None
         assert state.unifi_cfg is not None
 
-    print("SUCCESS: OPNsense live fetch & API client tests passed cleanly!")
+    # 6. Test fetch_opnsense_live_api error returns hint
+    with patch("src.gui.app.OPNsenseClient") as MockCls:
+        instance = MockCls.return_value
+        instance.fetch_config_xml.side_effect = ConnectionError("HTTP 401 Unauthorized")
+
+        bad_req = MockRequest({
+            "host": "192.168.10.1",
+            "port": 443,
+            "auth_mode": "api",
+            "api_key": "wrong",
+            "api_secret": "wrong"
+        })
+        bad_api_res = loop.run_until_complete(fetch_opnsense_live_api(bad_req))
+        assert bad_api_res.status_code == 200
+        bad_data = json.loads(bad_api_res.body.decode("utf-8"))
+        assert bad_data["success"] is False
+        assert "401" in bad_data["error"]
+        assert len(bad_data["hint"]) > 0
+
+    print("SUCCESS: OPNsense live fetch (Web-GUI form login & REST API) tests passed cleanly!")
 
 
 if __name__ == "__main__":

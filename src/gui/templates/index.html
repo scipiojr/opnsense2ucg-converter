@@ -135,23 +135,56 @@
               </div>
 
               <!-- Quick Live Connection Toggle for OPNsense -->
-              <details class="text-[11px] bg-slate-900/80 rounded-lg border border-slate-800 p-2">
+              <details class="text-[11px] bg-slate-900/80 rounded-lg border border-slate-800 p-2" id="opn-live-details">
                 <summary class="cursor-pointer text-sky-400 hover:text-sky-300 font-medium flex items-center justify-between">
-                  <span><i class="fa-solid fa-plug text-[10px] mr-1"></i> Live-Abfrage via API / IP</span>
+                  <span><i class="fa-solid fa-plug text-[10px] mr-1"></i> Live-Abfrage via IP / API</span>
                   <span id="opn-source-status" class="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">Inaktiv</span>
                 </summary>
                 <div class="space-y-2 pt-2 border-t border-slate-800/80 mt-1">
+                  <!-- Mode Switcher: Web-GUI vs API-Key -->
+                  <div class="flex items-center bg-slate-950 p-0.5 rounded border border-slate-800 text-[10px]">
+                    <button type="button" id="tab-opn-web" onclick="switchOpnAuthMode('web')" class="flex-1 py-1 px-1.5 rounded text-center font-medium bg-sky-600 text-white transition">
+                      <i class="fa-solid fa-globe mr-1"></i> Web-GUI (Root)
+                    </button>
+                    <button type="button" id="tab-opn-api" onclick="switchOpnAuthMode('api')" class="flex-1 py-1 px-1.5 rounded text-center font-medium text-slate-400 hover:text-slate-200 transition">
+                      <i class="fa-solid fa-key mr-1"></i> API-Key &amp; Secret
+                    </button>
+                  </div>
+
                   <div class="grid grid-cols-3 gap-1.5">
                     <input type="text" id="src-opn-host" value="192.168.1.1" placeholder="IP / Host" class="col-span-2 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
-                    <input type="number" id="src-opn-port" value="443" class="bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-[11px]">
+                    <input type="number" id="src-opn-port" value="443" class="bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-[11px]" title="Port">
                   </div>
-                  <div class="grid grid-cols-2 gap-1.5">
-                    <input type="text" id="src-opn-key" placeholder="API-Key (oder User)" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
-                    <input type="password" id="src-opn-secret" placeholder="API-Secret (oder Pass)" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+
+                  <!-- Web-GUI Login Fields -->
+                  <div id="opn-fields-web" class="space-y-1.5">
+                    <div class="grid grid-cols-2 gap-1.5">
+                      <input type="text" id="src-opn-user" value="root" placeholder="Benutzer (z. B. root)" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                      <input type="password" id="src-opn-pass" placeholder="Web-Passwort" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                    </div>
+                    <p class="text-[9.5px] text-slate-400 leading-tight">
+                      <i class="fa-solid fa-circle-info text-sky-400"></i> Standard-Weblogin. Bei 2FA den 6-stelligen Token an das Passwort anhängen oder API-Key nutzen.
+                    </p>
                   </div>
+
+                  <!-- API-Key Fields -->
+                  <div id="opn-fields-api" class="space-y-1.5 hidden">
+                    <div class="grid grid-cols-2 gap-1.5">
+                      <input type="text" id="src-opn-key" placeholder="API-Key" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                      <input type="password" id="src-opn-secret" placeholder="API-Secret" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                    </div>
+                    <p class="text-[9.5px] text-slate-400 leading-tight">
+                      <i class="fa-solid fa-key text-amber-400"></i> In OPNsense unter <em>System &gt; Access &gt; Users &gt; [User] &gt; API keys (+)</em> generieren.
+                    </p>
+                  </div>
+
+                  <!-- Error / Hint Box (hidden until error) -->
+                  <div id="opn-live-hint" class="hidden p-2 rounded bg-amber-950/40 border border-amber-800/60 text-[10px] text-amber-300 leading-relaxed">
+                  </div>
+
                   <div class="flex items-center justify-between pt-1">
                     <span id="src-opn-info" class="text-[10px] text-slate-400 truncate max-w-[120px]">Keine Live-Daten</span>
-                    <button onclick="fetchOpnsenseState()" id="btn-fetch-opn" class="bg-sky-600 hover:bg-sky-500 text-white text-[11px] px-2 py-1 rounded font-medium transition flex items-center gap-1">
+                    <button onclick="fetchOpnsenseState()" id="btn-fetch-opn" class="bg-sky-600 hover:bg-sky-500 text-white text-[11px] px-2.5 py-1 rounded font-medium transition flex items-center gap-1">
                       <i class="fa-solid fa-cloud-arrow-down"></i> Abrufen
                     </button>
                   </div>
@@ -1554,6 +1587,13 @@
   <!-- JAVASCRIPT APPLICATION LOGIC & COMPONENT CONTROLLERS                 -->
   <!-- ===================================================================== -->
   <script>
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
+      });
+    }
+
     // -------------------------------------------------------------------------
     // Main Tab Switching (Streamlined 4 Tabs with Backward-Compatible Aliases)
     // -------------------------------------------------------------------------
@@ -3228,11 +3268,60 @@
       if (tbody2) tbody2.innerHTML = html2;
     }
 
+    let opnAuthMode = 'web';
+
+    function switchOpnAuthMode(mode) {
+      opnAuthMode = mode;
+      const tabWeb = document.getElementById('tab-opn-web');
+      const tabApi = document.getElementById('tab-opn-api');
+      const fieldsWeb = document.getElementById('opn-fields-web');
+      const fieldsApi = document.getElementById('opn-fields-api');
+      const hintBox = document.getElementById('opn-live-hint');
+
+      if (hintBox) hintBox.classList.add('hidden');
+
+      if (mode === 'web') {
+        if (tabWeb) tabWeb.className = 'flex-1 py-1 px-1.5 rounded text-center font-medium bg-sky-600 text-white transition';
+        if (tabApi) tabApi.className = 'flex-1 py-1 px-1.5 rounded text-center font-medium text-slate-400 hover:text-slate-200 transition';
+        if (fieldsWeb) fieldsWeb.classList.remove('hidden');
+        if (fieldsApi) fieldsApi.classList.add('hidden');
+      } else {
+        if (tabWeb) tabWeb.className = 'flex-1 py-1 px-1.5 rounded text-center font-medium text-slate-400 hover:text-slate-200 transition';
+        if (tabApi) tabApi.className = 'flex-1 py-1 px-1.5 rounded text-center font-medium bg-sky-600 text-white transition';
+        if (fieldsWeb) fieldsWeb.classList.add('hidden');
+        if (fieldsApi) fieldsApi.classList.remove('hidden');
+      }
+      try { localStorage.setItem('opn_auth_mode', mode); } catch (_) {}
+    }
+
     async function fetchOpnsenseState() {
-      const host = document.getElementById('src-opn-host').value;
-      const port = document.getElementById('src-opn-port').value;
-      const key = document.getElementById('src-opn-key').value;
-      const secret = document.getElementById('src-opn-secret').value;
+      const host = (document.getElementById('src-opn-host')?.value || '').trim();
+      const port = (document.getElementById('src-opn-port')?.value || '443').trim();
+      const user = (document.getElementById('src-opn-user')?.value || '').trim();
+      const pass = (document.getElementById('src-opn-pass')?.value || '').trim();
+      const key = (document.getElementById('src-opn-key')?.value || '').trim();
+      const secret = (document.getElementById('src-opn-secret')?.value || '').trim();
+      const hintBox = document.getElementById('opn-live-hint');
+
+      if (hintBox) {
+        hintBox.classList.add('hidden');
+        hintBox.innerHTML = '';
+      }
+
+      if (!host) {
+        showToast('Bitte IP / Host der OPNsense angeben.', true);
+        return;
+      }
+
+      if (opnAuthMode === 'web' && (!user || !pass)) {
+        showToast('Bitte Benutzername (z. B. root) und Web-Passwort angeben.', true);
+        return;
+      }
+
+      if (opnAuthMode === 'api' && (!key || !secret)) {
+        showToast('Bitte API-Key und API-Secret angeben.', true);
+        return;
+      }
 
       const btn = document.getElementById('btn-fetch-opn');
       const origHtml = btn.innerHTML;
@@ -3240,17 +3329,20 @@
       btn.disabled = true;
 
       try {
+        const payload = {
+          host,
+          port: parseInt(port) || 443,
+          auth_mode: opnAuthMode,
+          username: opnAuthMode === 'web' ? user : '',
+          password: opnAuthMode === 'web' ? pass : '',
+          api_key: opnAuthMode === 'api' ? key : user,
+          api_secret: opnAuthMode === 'api' ? secret : pass,
+        };
+
         const res = await fetch('/api/sources/fetch-opnsense', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            host,
-            port: parseInt(port),
-            api_key: key,
-            api_secret: secret,
-            username: key,
-            password: secret
-          })
+          body: JSON.stringify(payload)
         });
         const text = await res.text();
         let data;
@@ -3282,6 +3374,12 @@
             elInfo.innerText = `${data.summary.interfaces_count} Netze, ${data.summary.filter_rules_count} Regeln`;
           }
 
+          try {
+            localStorage.setItem('opn_host', host);
+            localStorage.setItem('opn_port', port);
+            if (opnAuthMode === 'web') localStorage.setItem('opn_user', user);
+          } catch (_) {}
+
           renderParsedData(data);
           if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
           if (data.reconciliation) renderReconciliation(data.reconciliation);
@@ -3292,6 +3390,18 @@
             elStatus.className = 'px-1.5 py-0.2 rounded text-[9px] font-semibold bg-red-950 text-red-400 border border-red-800';
             elStatus.innerText = 'Fehler';
           }
+
+          if (hintBox) {
+            hintBox.classList.remove('hidden');
+            let hintContent = `<div class="font-semibold text-red-300 mb-1"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${escapeHtml(data.error || 'Fehler beim Abruf')}</div>`;
+            if (data.hint) {
+              hintContent += `<div class="text-amber-200">${escapeHtml(data.hint)}</div>`;
+            } else if ((data.error || '').includes('401')) {
+              hintContent += `<div class="text-amber-200">Hinweis: OPNsense REST-API erfordert einen API-Key. Nutzen Sie den Reiter <strong>Web-GUI (Root)</strong> für Ihr gewohntes Web-Passwort!</div>`;
+            }
+            hintBox.innerHTML = hintContent;
+          }
+
           showToast(data.error || 'Fehler beim Live-Abruf von OPNsense', true);
         }
       } catch (err) {
@@ -3762,6 +3872,19 @@
     function downloadUnifiJson() {
       window.location.href = '/api/export-unifi-json';
     }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      try {
+        const savedMode = localStorage.getItem('opn_auth_mode');
+        if (savedMode) switchOpnAuthMode(savedMode);
+        const savedHost = localStorage.getItem('opn_host');
+        if (savedHost && document.getElementById('src-opn-host')) document.getElementById('src-opn-host').value = savedHost;
+        const savedPort = localStorage.getItem('opn_port');
+        if (savedPort && document.getElementById('src-opn-port')) document.getElementById('src-opn-port').value = savedPort;
+        const savedUser = localStorage.getItem('opn_user');
+        if (savedUser && document.getElementById('src-opn-user')) document.getElementById('src-opn-user').value = savedUser;
+      } catch (_) {}
+    });
   </script>
 </body>
 </html>
