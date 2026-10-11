@@ -5004,6 +5004,7 @@
       }
 
       tbody.innerHTML = filtered.map(item => {
+        const isExcl = item.status === 'excluded';
         let badge = '';
         if (item.status === 'aligned') {
           badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">ABGEGLICHEN</span>';
@@ -5015,7 +5016,7 @@
           badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-400 border border-amber-800">KONFLIKT</span>';
         } else if (item.status === 'import_uos') {
           badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-800">UOS IMPORT</span>';
-        } else if (item.status === 'excluded') {
+        } else if (isExcl) {
           badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-800"><i class="fa-solid fa-ban mr-1"></i>NICHT MIGRIERT</span>';
         } else {
           badge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">${item.status}</span>`;
