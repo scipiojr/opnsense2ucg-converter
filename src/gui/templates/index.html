@@ -3213,6 +3213,7 @@
       updateStep1ManagementBadge();
       updateModemManagementUI(u.modem_management);
     }
+    const renderUniFiMapped = renderUnifiReview;
 
     // -------------------------------------------------------------------------
     // VDSL-Modem WebUI & Management Modal and UI Handlers
@@ -3416,7 +3417,7 @@
         closeModemManagementModal();
 
         if (json.unifi_mapped) {
-          renderUniFiMapped(json.unifi_mapped);
+          renderUnifiReview(json.unifi_mapped);
           if (json.unifi_mapped.omitted_items) {
             updateOmittedItemsTable(json.unifi_mapped.omitted_items);
           }
@@ -3462,7 +3463,7 @@
         closeModemManagementModal();
 
         if (json.unifi_mapped) {
-          renderUniFiMapped(json.unifi_mapped);
+          renderUnifiReview(json.unifi_mapped);
           if (json.unifi_mapped.omitted_items) {
             updateOmittedItemsTable(json.unifi_mapped.omitted_items);
           }
