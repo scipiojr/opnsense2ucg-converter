@@ -210,14 +210,78 @@ class OPNsenseClient:
         if 'name="usernamefld"' in post_resp.text and 'name="passwordfld"' in post_resp.text and '<body class="page-login"' in post_resp.text:
             raise PermissionError("Login fehlgeschlagen: Die Login-Maske wurde erneut angezeigt (Passwort prüfen).")
 
-        # Session authenticated! Now download config.xml
-        # 1. Primary: POST to /diag_backup.php (standard OPNsense configuration download)
+        # Session authenticated! Now prepare to download config.xml
         diag_backup_url = f"{self.base_url}/diag_backup.php"
+        logger.info("Accessing %s to obtain backup form CSRF token", diag_backup_url)
+
+        # GET /diag_backup.php to ensure fresh CSRF token and form context
+        try:
+            get_diag_resp = session.get(
+                diag_backup_url,
+                headers={"Referer": login_url},
+                verify=self.verify_ssl,
+                timeout=self.timeout,
+            )
+            html_to_search = get_diag_resp.text
+        except Exception as e:
+            logger.warning("GET %s failed: %s; falling back to post_resp text", diag_backup_url, e)
+            html_to_search = post_resp.text
+
+        # 1. Look for CSRF token injected into POST forms by LegacyCSRF:
+        # <input type="hidden" name="[key]" value="[token]" autocomplete="new-password" />
+        # 2. Look for X-CSRFToken in $.ajaxSetup
+        csrf_key = None
+        csrf_val = None
+
+        # Pattern: <input type="hidden" name="XYZ" value="UVW" ...>
+        for input_match in re.finditer(r'<input\s+[^>]*type=["\']hidden["\'][^>]*>', html_to_search, re.IGNORECASE):
+            tag = input_match.group(0)
+            name_m = re.search(r'name=["\']([^"\']+)["\']', tag, re.IGNORECASE)
+            val_m = re.search(r'value=["\']([^"\']+)["\']', tag, re.IGNORECASE)
+            if name_m and val_m:
+                n = name_m.group(1)
+                v = val_m.group(1)
+                # Ignore common static form fields
+                if n.lower() not in ("login", "act", "id", "backuptype"):
+                    csrf_key = n
+                    csrf_val = v
+                    break
+
+        # Check for Ajax X-CSRFToken in script block
+        ajax_csrf_m = re.search(r'xhr\.setRequestHeader\(["\']X-CSRFToken["\'],\s*["\']([^"\']+)["\']\)', html_to_search, re.IGNORECASE)
+        ajax_token = ajax_csrf_m.group(1) if ajax_csrf_m else None
+
+        token_to_use = csrf_val or ajax_token
+        if not csrf_key and token_to_use:
+            csrf_key = "csrf_token"
+
+        logger.info(
+            "CSRF token discovery: key=%s, val_len=%d, ajax_token=%s",
+            csrf_key,
+            len(token_to_use) if token_to_use else 0,
+            bool(ajax_token),
+        )
+
+        dl_headers = {
+            "Origin": self.base_url,
+            "Referer": diag_backup_url,
+        }
+        if token_to_use:
+            dl_headers["X-CSRFToken"] = token_to_use
+
+        # Primary payload
+        data_primary = {
+            "download": "Download configuration",
+            "donotbackuprrd": "yes",
+        }
+        if csrf_key and token_to_use:
+            data_primary[csrf_key] = token_to_use
+
         logger.info("Downloading config.xml via POST %s", diag_backup_url)
         dl_resp = session.post(
             diag_backup_url,
-            data={"download": "Download configuration", "donotbackuprrd": "yes"},
-            headers={"Origin": self.base_url, "Referer": diag_backup_url},
+            data=data_primary,
+            headers=dl_headers,
             verify=self.verify_ssl,
             timeout=self.timeout,
         )
@@ -225,11 +289,18 @@ class OPNsenseClient:
             logger.info("Successfully fetched config.xml via POST /diag_backup.php")
             return dl_resp.text
 
-        # 2. Secondary: POST to /diag_backup.php with alt button value
+        # Secondary: POST with alt button value
+        data_secondary = {
+            "download": "1",
+            "donotbackuprrd": "yes",
+        }
+        if csrf_key and token_to_use:
+            data_secondary[csrf_key] = token_to_use
+
         dl_resp2 = session.post(
             diag_backup_url,
-            data={"download": "1", "donotbackuprrd": "yes"},
-            headers={"Origin": self.base_url, "Referer": diag_backup_url},
+            data=data_secondary,
+            headers=dl_headers,
             verify=self.verify_ssl,
             timeout=self.timeout,
         )
@@ -237,12 +308,15 @@ class OPNsenseClient:
             logger.info("Successfully fetched config.xml via POST (alt) /diag_backup.php")
             return dl_resp2.text
 
-        # 3. Tertiary: Session-based GET /api/core/backup/download/this
+        # Tertiary: Session-based GET /api/core/backup/download/this
         api_backup_url = f"{self.base_url}/api/core/backup/download/this"
         logger.info("Trying session GET on %s", api_backup_url)
+        api_headers = {"Referer": self.base_url}
+        if token_to_use:
+            api_headers["X-CSRFToken"] = token_to_use
         dl_resp3 = session.get(
             api_backup_url,
-            headers={"Referer": self.base_url},
+            headers=api_headers,
             verify=self.verify_ssl,
             timeout=self.timeout,
         )

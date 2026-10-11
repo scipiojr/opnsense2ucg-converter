@@ -64,6 +64,7 @@ class UniFiMapper:
 
         # 7. Pass Remaining Omitted Items
         target.omitted_items = list(self.cfg.omitted_items)
+        target.modem_management = self.cfg.modem_management
 
         return target
 
@@ -73,14 +74,45 @@ class UniFiMapper:
         # Find DHCP ranges map by interface
         dhcp_map = {r.interface: r for r in self.cfg.dhcp_ranges}
 
+        # Check existing used VLANs
+        used_vlans = {iface.vlan_tag for iface in self.cfg.interfaces if iface.vlan_tag is not None}
+        used_vlans.add(1)
+
         for iface in self.cfg.interfaces:
             # Skip WAN interfaces
             if iface.id.lower() == "wan" or iface.ipaddr.lower() == "dhcp" or not iface.ipaddr:
                 continue
 
-            # Determine VLAN ID
-            # LAN is typically untagged / VLAN 1 (Default corporate in UniFi)
-            vlan_id = iface.vlan_tag if iface.vlan_tag is not None else (1 if iface.id.lower() == "lan" else 0)
+            is_modem = (
+                self.cfg.modem_management
+                and self.cfg.modem_management.detected
+                and self.cfg.modem_management.interface_id == iface.id
+            )
+
+            if is_modem:
+                vlan_id = self.cfg.modem_management.allocated_vlan
+                dhcp_enabled = False
+                net_name = iface.descr if "modem" in iface.descr.lower() else "MODEM_MGMT"
+            elif iface.vlan_tag is not None:
+                vlan_id = iface.vlan_tag
+                dhcp_info = dhcp_map.get(iface.id)
+                dhcp_enabled = dhcp_info is not None
+                net_name = iface.descr or iface.id.upper()
+            elif iface.id.lower() == "lan":
+                vlan_id = 1
+                dhcp_info = dhcp_map.get(iface.id)
+                dhcp_enabled = dhcp_info is not None
+                net_name = iface.descr or iface.id.upper()
+            else:
+                # Non-LAN interface without VLAN tag: allocate an unused VLAN (>= 50)
+                next_vlan = 50
+                while next_vlan in used_vlans:
+                    next_vlan += 1
+                used_vlans.add(next_vlan)
+                vlan_id = next_vlan
+                dhcp_info = dhcp_map.get(iface.id)
+                dhcp_enabled = dhcp_info is not None
+                net_name = iface.descr or iface.id.upper()
 
             # Gateway CIDR
             subnet_bits = iface.subnet if iface.subnet else "24"
@@ -88,12 +120,9 @@ class UniFiMapper:
 
             # DHCP range
             dhcp_info = dhcp_map.get(iface.id)
-            dhcp_enabled = dhcp_info is not None
-            dhcp_start = dhcp_info.range_from if dhcp_info else ""
-            dhcp_stop = dhcp_info.range_to if dhcp_info else ""
-            dns_servers = dhcp_info.dns_servers if dhcp_info else []
-
-            net_name = iface.descr or iface.id.upper()
+            dhcp_start = dhcp_info.range_from if (dhcp_info and dhcp_enabled) else ""
+            dhcp_stop = dhcp_info.range_to if (dhcp_info and dhcp_enabled) else ""
+            dns_servers = dhcp_info.dns_servers if (dhcp_info and dhcp_enabled) else []
 
             networks.append(
                 UniFiNetwork(
@@ -260,6 +289,31 @@ class UniFiMapper:
             )
         )
         rule_idx += 1
+
+        # ---------------------------------------------------------------------
+        # UniFi Step 2b: Pinhole Rule for VDSL Modem WebUI (Ports 80/443)
+        # ---------------------------------------------------------------------
+        if self.cfg.modem_management and self.cfg.modem_management.detected:
+            modem_ip = self.cfg.modem_management.modem_ip
+            rules.append(
+                UniFiFirewallRule(
+                    name="Allow Admin/LAN to Modem WebUI",
+                    ruleset="LAN_IN",
+                    action="accept",
+                    rule_index=rule_idx,
+                    enabled=True,
+                    protocol="tcp",
+                    dst_address=modem_ip,
+                    dst_port="80,443",
+                    state_new=True,
+                    state_established=True,
+                    state_related=True,
+                    logging=False,
+                    origin="Modem Management Pinhole",
+                    description=f"Erlaubt WebUI-Zugriff (Port 80/443) auf das VDSL-Modem ({modem_ip}) vor der Inter-VLAN-Blocksperre",
+                )
+            )
+            rule_idx += 1
 
         # ---------------------------------------------------------------------
         # UniFi Step 3: Map user filter rules from OPNsense
@@ -496,3 +550,54 @@ class UniFiMapper:
                 up_rate_kbps=shaper.up_rate_kbps,
             )
         return None
+
+    def add_modem_management_network(
+        self,
+        target: UniFiTargetConfig,
+        vlan_id: int = 99,
+        modem_ip: str = "192.168.2.1",
+        gateway_cidr: str = "192.168.2.2/24",
+    ) -> UniFiNetwork:
+        """
+        Manually or programmatically attaches a dedicated Modem-Management network
+        and corresponding pinhole rule to a UniFi target configuration.
+        """
+        existing = next((n for n in target.networks if n.vlan_id == vlan_id or n.name == "MODEM_MGMT"), None)
+        if not existing:
+            modem_net = UniFiNetwork(
+                name="MODEM_MGMT",
+                vlan_id=vlan_id,
+                gateway_cidr=gateway_cidr,
+                purpose="corporate",
+                dhcp_enabled=False,
+            )
+            target.networks.append(modem_net)
+        else:
+            modem_net = existing
+
+        has_rule = any(r.dst_address == modem_ip for r in target.firewall_rules)
+        if not has_rule:
+            rule_idx = 2050
+            while any(r.rule_index == rule_idx for r in target.firewall_rules):
+                rule_idx += 1
+            target.firewall_rules.insert(
+                2,
+                UniFiFirewallRule(
+                    name="Allow Admin/LAN to Modem WebUI",
+                    ruleset="LAN_IN",
+                    action="accept",
+                    rule_index=rule_idx,
+                    enabled=True,
+                    protocol="tcp",
+                    dst_address=modem_ip,
+                    dst_port="80,443",
+                    state_new=True,
+                    state_established=True,
+                    state_related=True,
+                    logging=False,
+                    origin="Modem Management Pinhole",
+                    description=f"Erlaubt WebUI-Zugriff (Port 80/443) auf das VDSL-Modem ({modem_ip}) vor der Inter-VLAN-Blocksperre",
+                ),
+            )
+
+        return modem_net

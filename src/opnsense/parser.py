@@ -16,6 +16,7 @@ from src.models import (
     OPNsenseDnsHost,
     OPNsenseWireGuard,
     OPNsenseTrafficShaper,
+    OPNsenseModemManagement,
     OmittedItem,
 )
 
@@ -41,6 +42,9 @@ class OPNsenseParser:
 
         # 2. Parse Interfaces
         config.interfaces = self._parse_interfaces(vlans_map)
+
+        # 2b. Detect Modem Management (VDSL / DrayTek WebUI access)
+        config.modem_management = self._detect_modem_management(config.interfaces, vlans_map)
 
         # 3. Parse DHCP (ISC dhcpd & Kea)
         config.dhcp_ranges, config.static_leases = self._parse_dhcp()
@@ -125,6 +129,112 @@ class OPNsenseParser:
                 )
             )
         return interfaces
+
+    def _detect_modem_management(
+        self,
+        interfaces: List[OPNsenseInterface],
+        vlans_map: Dict[str, Tuple[int, str, str]],
+    ) -> Optional[OPNsenseModemManagement]:
+        """
+        Detects if a VDSL modem management connection is present in OPNsense
+        (e.g., dual-connected via an untagged parent interface or separate VLAN,
+        as in DrayTek Vigor / Zyxel bridge mode setups).
+        """
+        wan_if = next((i for i in interfaces if i.id.lower() == "wan"), None)
+        if not wan_if:
+            return None
+
+        # Determine WAN parent physical interface
+        wan_phys = wan_if.physical_if
+        wan_parent = wan_phys
+        if wan_phys in vlans_map:
+            wan_parent = vlans_map[wan_phys][1]
+        elif "." in wan_phys:
+            wan_parent = wan_phys.split(".")[0]
+        elif "_vlan" in wan_phys:
+            wan_parent = wan_phys.split("_vlan")[0]
+
+        candidate_if: Optional[OPNsenseInterface] = None
+        detection_reason = ""
+
+        for iface in interfaces:
+            if iface.id.lower() in ("wan", "lan") or not iface.ipaddr:
+                continue
+
+            # Determine this interface's physical parent
+            if_phys = iface.physical_if
+            if_parent = if_phys
+            if if_phys in vlans_map:
+                if_parent = vlans_map[if_phys][1]
+            elif "." in if_phys:
+                if_parent = if_phys.split(".")[0]
+            elif "_vlan" in if_phys:
+                if_parent = if_phys.split("_vlan")[0]
+
+            descr_lower = iface.descr.lower()
+            id_lower = iface.id.lower()
+            has_modem_name = any(k in descr_lower or k in id_lower for k in ("modem", "draytek", "vigor", "vdsl", "dsl_mgmt"))
+
+            # 1. Shares physical parent interface with WAN (Classic OPNsense Dual-Attachment on WAN NIC)
+            if if_parent == wan_parent and if_parent:
+                candidate_if = iface
+                detection_reason = f"Teilt physischen WAN-Port ({wan_parent}) mit Interface '{iface.descr}'"
+                break
+
+            # 2. Explicit Modem / DrayTek name
+            if has_modem_name:
+                candidate_if = iface
+                detection_reason = f"Interface '{iface.descr}' ist namentlich als Modem-Interface deklariert"
+                break
+
+            # 3. Known modem management IP subnet (e.g. 192.168.2.x, typical for DrayTek/Zyxel)
+            if iface.ipaddr.startswith("192.168.2.") and iface.id.lower() != "lan":
+                candidate_if = iface
+                detection_reason = f"Interface '{iface.descr}' nutzt Standard-Modem-Subnetz 192.168.2.0/24"
+                break
+
+        if not candidate_if:
+            return None
+
+        # Determine modem IP (target WebUI)
+        gateway_ip = candidate_if.ipaddr
+        subnet = candidate_if.subnet or "24"
+        modem_ip = candidate_if.gateway or ""
+
+        if not modem_ip:
+            if gateway_ip.endswith(".2"):
+                # e.g. OPNsense has 192.168.2.2, modem has 192.168.2.1
+                modem_ip = gateway_ip[:-1] + "1"
+            elif gateway_ip.startswith("192.168.2."):
+                modem_ip = "192.168.2.1"
+            else:
+                prefix = gateway_ip.rsplit(".", 1)[0]
+                modem_ip = f"{prefix}.1"
+
+        # Determine allocated VLAN (avoid collision with existing VLANs)
+        used_vlans = {i.vlan_tag for i in interfaces if i.vlan_tag is not None}
+        used_vlans.add(1)
+        allocated_vlan = candidate_if.vlan_tag if (candidate_if.vlan_tag and candidate_if.vlan_tag > 1) else None
+        if not allocated_vlan:
+            for candidate_vlan in [99, 98, 97, 199, 200, 299]:
+                if candidate_vlan not in used_vlans:
+                    allocated_vlan = candidate_vlan
+                    break
+            if not allocated_vlan:
+                allocated_vlan = max(used_vlans) + 1
+
+        return OPNsenseModemManagement(
+            detected=True,
+            interface_id=candidate_if.id,
+            interface_descr=candidate_if.descr or "MODEM_MGMT",
+            parent_if=wan_parent,
+            modem_ip=modem_ip,
+            gateway_ip=gateway_ip,
+            subnet=subnet,
+            existing_vlan=candidate_if.vlan_tag,
+            allocated_vlan=allocated_vlan,
+            reason=detection_reason,
+        )
 
     def _parse_dhcp(self) -> Tuple[List[OPNsenseDhcpRange], List[OPNsenseStaticLease]]:
         ranges: List[OPNsenseDhcpRange] = []
@@ -460,6 +570,26 @@ class OPNsenseParser:
                     name="OPNsense Erweiterungspakete (z.B. Zenarmor, HAProxy, ACME)",
                     reason="FreeBSD-Plugins können auf UniFi OS nicht installiert werden. Viele Funktionen (IDS/IPS, DPI, Adblock) sind in UniFi OS bereits nativ integriert.",
                     recommendation="Integrierte Schutzfunktionen in UniFi unter 'Settings > Security > CyberSecure' (Suspicious Activity / IDS/IPS) aktivieren.",
+                    severity="info",
+                )
+            )
+
+        # 4. VDSL Modem Management (Bridge WebUI access)
+        if config and config.modem_management and config.modem_management.detected:
+            mm = config.modem_management
+            omitted.append(
+                OmittedItem(
+                    category="Hardware / WAN",
+                    name=f"VDSL-Modem WebUI & Management ({mm.modem_ip})",
+                    reason=(
+                        f"In OPNsense lief das Modem über Interface '{mm.interface_id}' ({mm.parent_if}). "
+                        "UniFi OS unterstützt kein direktes IP-Aliasing auf PPPoE-WAN-Ports im Web-GUI."
+                    ),
+                    recommendation=(
+                        f"Dediziertes UniFi-Netzwerk 'MODEM_MGMT' (VLAN {mm.allocated_vlan}, Subnetz {mm.gateway_ip}/{mm.subnet}) "
+                        f"sowie Pinhole-Firewall-Regel für {mm.modem_ip} (Ports 80/443) wurden angelegt. "
+                        f"Verbinden Sie Port 2 des Modems mit einem Port (z.B. UCG Port 4 oder Switch) mit nativem VLAN {mm.allocated_vlan}."
+                    ),
                     severity="info",
                 )
             )

@@ -85,5 +85,92 @@ def test_parser_and_mapper():
     print("SUCCESS: All unit tests passed!")
 
 
+def test_vdsl_modem_management_migration():
+    """
+    Tests detection and migration of a VDSL modem (e.g. DrayTek Vigor)
+    connected via dual interface / VLAN as discussed in OPNsense forum.
+    """
+    xml_with_modem = """<?xml version="1.0"?>
+    <opnsense>
+      <version>26.7.5</version>
+      <interfaces>
+        <wan>
+          <enable>1</enable>
+          <if>vlan0.7</if>
+          <descr>WAN_VDSL_TELEKOM</descr>
+          <ipaddr>pppoe</ipaddr>
+        </wan>
+        <lan>
+          <enable>1</enable>
+          <if>igb0</if>
+          <descr>LAN_CORP</descr>
+          <ipaddr>192.168.1.1</ipaddr>
+          <subnet>24</subnet>
+        </lan>
+        <opt1>
+          <enable>1</enable>
+          <if>igb1</if>
+          <descr>DrayTek Vigor 165 Modem</descr>
+          <ipaddr>192.168.2.2</ipaddr>
+          <subnet>24</subnet>
+          <gateway>192.168.2.1</gateway>
+        </opt1>
+      </interfaces>
+      <vlans>
+        <vlan>
+          <if>igb1</if>
+          <tag>7</tag>
+          <vlanif>vlan0.7</vlanif>
+          <descr>Telekom Internet VLAN</descr>
+        </vlan>
+      </vlans>
+    </opnsense>
+    """
+    parser = OPNsenseParser(xml_with_modem)
+    opn_cfg = parser.parse()
+
+    # 1. Verify parser detected the modem connection
+    assert opn_cfg.modem_management is not None
+    assert opn_cfg.modem_management.detected is True
+    assert opn_cfg.modem_management.parent_if == "igb1"
+    assert opn_cfg.modem_management.modem_ip == "192.168.2.1"
+    assert opn_cfg.modem_management.gateway_ip == "192.168.2.2"
+    assert opn_cfg.modem_management.allocated_vlan == 99
+
+    # Check omitted items contains hardware guidance
+    modem_omitted = next((o for o in opn_cfg.omitted_items if "VDSL-Modem" in o.name), None)
+    assert modem_omitted is not None
+    assert "VLAN 99" in modem_omitted.recommendation
+
+    # 2. Verify UniFi Mapper creates dedicated network & pinhole rule
+    mapper = UniFiMapper(opn_cfg)
+    unifi_cfg = mapper.map_all(enforce_inter_vlan_block=True)
+
+    # Dedicated network
+    modem_net = next((n for n in unifi_cfg.networks if n.vlan_id == 99), None)
+    assert modem_net is not None
+    assert modem_net.gateway_cidr == "192.168.2.2/24"
+    assert modem_net.dhcp_enabled is False
+    assert "Modem" in modem_net.name
+
+    # Pinhole firewall rule
+    pinhole_rule = next((r for r in unifi_cfg.firewall_rules if "Modem WebUI" in r.name), None)
+    assert pinhole_rule is not None
+    assert pinhole_rule.action == "accept"
+    assert pinhole_rule.ruleset == "LAN_IN"
+    assert pinhole_rule.dst_address == "192.168.2.1"
+    assert pinhole_rule.dst_port == "80,443"
+
+    # Inter-VLAN Block rule must have a higher index (execute AFTER the pinhole)
+    inter_vlan_rule = next((r for r in unifi_cfg.firewall_rules if "Inter-VLAN" in r.name), None)
+    assert inter_vlan_rule is not None
+    assert inter_vlan_rule.rule_index > pinhole_rule.rule_index
+
+    # 3. Test programmatic helper function add_modem_management_network
+    added = mapper.add_modem_management_network(unifi_cfg, vlan_id=99)
+    assert added.vlan_id == 99
+
+
 if __name__ == "__main__":
     test_parser_and_mapper()
+    test_vdsl_modem_management_migration()

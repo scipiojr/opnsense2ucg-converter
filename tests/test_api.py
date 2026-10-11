@@ -555,13 +555,23 @@ def test_opnsense_live_fetch():
 
     with patch("requests.Session") as MockSessionClass:
         mock_sess = MockSessionClass.return_value
-        mock_sess.get.return_value = mock_login_page_resp
+        # 1st get: /index.php, 2nd get: /diag_backup.php with LegacyCSRF tokens
+        mock_diag_get_resp = MagicMock()
+        mock_diag_get_resp.status_code = 200
+        mock_diag_get_resp.text = '<html><head><script>xhr.setRequestHeader("X-CSRFToken", "mock_csrf_val_123");</script></head><body><form method="post"><input type="hidden" name="mock_csrf_key_abc" value="mock_csrf_val_123" autocomplete="new-password" /></form></body></html>'
+
+        mock_sess.get.side_effect = [mock_login_page_resp, mock_diag_get_resp]
         mock_sess.post.side_effect = [mock_login_post_resp, mock_backup_dl_resp]
         mock_sess.cookies = {}
 
         fetched_web_xml = web_client.fetch_config_xml()
         assert fetched_web_xml == xml_data
         assert mock_sess.post.call_count >= 2
+
+        # Verify POST /diag_backup.php received CSRF token and header
+        dl_post_call = mock_sess.post.call_args_list[-1]
+        assert dl_post_call.kwargs["headers"].get("X-CSRFToken") == "mock_csrf_val_123"
+        assert dl_post_call.kwargs["data"].get("mock_csrf_key_abc") == "mock_csrf_val_123"
 
     # 4. Test failure with 401 raises ConnectionError with helpful guidance
     err_resp = MagicMock()

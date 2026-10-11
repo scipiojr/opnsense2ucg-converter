@@ -146,6 +146,7 @@ Die Software trennt sauber zwischen automatisierbaren Netzwerkobjekten und platt
 | **VPN-Dienste** | **WireGuard Server-Blueprint** (Listen-Port, Server-Subnetz, Peer-Vorlagen). | **OpenVPN & IPsec Tunnel** (Architektur-Inkompatibilität). | WireGuard wird vorbereitet; OpenVPN/IPsec in UniFi OS unter *Settings > VPN* oder per Teleport (1-Klick) nutzen. |
 | **Bandbreitenbegrenzung**| **Traffic Shaper Pipes & CoDel Limiter** werden automatisch in **UniFi Smart Queues (WAN Up/Down Limits)** übersetzt. | Queue-Scheduling-Gewichtungen (Fair-Queueing). | Smart Queues regeln Bufferbloat im UCG-Max hardwarenah. |
 | **Routing / Multi-WAN** | Standard-Routing über WAN. | **Policy-Based Routing (Gateway-Overrides in Filterregeln).** | In UniFi unter *Settings > Routing > Policy-Based Routes* (Traffic Routes) anlegen. |
+| **VDSL-Modem WebUI (DrayTek/Zyxel)** | **Dediziertes Modem-Management-Netzwerk (z. B. VLAN 99)** ohne DHCP sowie **Pinhole-Firewall-Regel (Ports 80, 443)** auf `LAN_IN`. | Direktes IP-Aliasing auf dem PPPoE-WAN-Port (wird in UniFi-GUI nicht unterstützt). | Port 2 des Modems mit UCG-Port oder Switch verbinden (Profil: natives Modem-VLAN). |
 | **System & Benutzer** | *(Prinzipbedingt nicht übertragbar)* | **FreeBSD-Benutzerkonten & OPNsense-Plugins (Zenarmor, HAProxy).** | Benutzer unter *Admins & Users* einladen; IDS/IPS unter *Settings > Security > CyberSecure* aktivieren. |
 
 ---

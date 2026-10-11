@@ -130,6 +130,19 @@ def _apply_xml_content(xml_content: str) -> Dict[str, Any]:
         "port_forwards_count": len(state.opnsense_cfg.port_forwards),
         "filter_rules_count": len(state.opnsense_cfg.filter_rules),
         "omitted_count": len(state.opnsense_cfg.omitted_items),
+        "modem_management": (
+            {
+                "detected": state.opnsense_cfg.modem_management.detected,
+                "interface_id": state.opnsense_cfg.modem_management.interface_id,
+                "interface_descr": state.opnsense_cfg.modem_management.interface_descr,
+                "modem_ip": state.opnsense_cfg.modem_management.modem_ip,
+                "gateway_ip": state.opnsense_cfg.modem_management.gateway_ip,
+                "allocated_vlan": state.opnsense_cfg.modem_management.allocated_vlan,
+                "reason": state.opnsense_cfg.modem_management.reason,
+            }
+            if state.opnsense_cfg.modem_management and state.opnsense_cfg.modem_management.detected
+            else None
+        ),
         "omitted_items": [
             {
                 "category": o.category,
@@ -459,6 +472,19 @@ def _raw_unifi_config_dict(cfg: Optional[UniFiTargetConfig] = None) -> Dict[str,
                 ],
             }
             if (rep := getattr(cfg, "reconciliation_report", None) or state.reconciliation_report) else None
+        ),
+        "modem_management": (
+            {
+                "detected": mm.detected,
+                "interface_id": mm.interface_id,
+                "interface_descr": mm.interface_descr,
+                "modem_ip": mm.modem_ip,
+                "gateway_ip": mm.gateway_ip,
+                "allocated_vlan": mm.allocated_vlan,
+                "reason": mm.reason,
+            }
+            if (mm := getattr(cfg, "modem_management", None)) and mm.detected
+            else None
         ),
         "ucg_networks": networks_from_sources,
     }

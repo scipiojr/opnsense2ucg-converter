@@ -19,6 +19,20 @@ class OPNsenseInterface:
 
 
 @dataclass
+class OPNsenseModemManagement:
+    detected: bool = False
+    interface_id: str = ""           # e.g. "opt1", "modem"
+    interface_descr: str = ""        # e.g. "MODEM", "DrayTek"
+    parent_if: str = ""              # e.g. "igb1" (shared with WAN)
+    modem_ip: str = "192.168.2.1"     # Target WebUI IP
+    gateway_ip: str = "192.168.2.2"   # Gateway IP on router side
+    subnet: str = "24"               # e.g. "24"
+    existing_vlan: Optional[int] = None # If already had a VLAN tag in OPNsense
+    allocated_vlan: int = 99         # Dedicated VLAN for UniFi
+    reason: str = ""
+
+
+@dataclass
 class OPNsenseStaticLease:
     mac: str
     ipaddr: str
@@ -123,6 +137,7 @@ class OPNsenseConfig:
     wireguard_servers: List[OPNsenseWireGuard] = field(default_factory=list)
     traffic_shaper: Optional[OPNsenseTrafficShaper] = None
     omitted_items: List[OmittedItem] = field(default_factory=list)
+    modem_management: Optional[OPNsenseModemManagement] = None
     raw_xml: str = ""
 
 
@@ -306,4 +321,5 @@ class UniFiTargetConfig:
     smart_queue: Optional[UniFiSmartQueue] = None
     omitted_items: List[OmittedItem] = field(default_factory=list)
     wlans: List[UniFiWlan] = field(default_factory=list)
+    modem_management: Optional[OPNsenseModemManagement] = None
     reconciliation_report: Optional[ReconciliationReport] = None
