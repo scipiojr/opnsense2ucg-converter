@@ -21,6 +21,7 @@ from src.models import (
     UniFiFirewallRule,
     UniFiFixedIp,
     UniFiPortForward,
+    UniFiNatRule,
     UniFiDnsRecord,
     UniFiTrafficRoute,
     UniFiTrafficRule,
@@ -46,8 +47,9 @@ class UniFiMapper:
         # 3. Map Fixed IP Leases
         target.fixed_ips = self.map_fixed_ips(target.networks)
 
-        # 4. Map Port Forwards
+        # 4. Map Port Forwards & NAT Rules
         target.port_forwards = self.map_port_forwards()
+        target.nat_rules = self.map_nat_rules()
 
         # 5. Map Firewall Rules with UniFi Security Architecture
         target.firewall_rules = self.map_firewall_rules(
@@ -239,6 +241,71 @@ class UniFiMapper:
             )
 
         return port_forwards
+
+    def map_nat_rules(self) -> List[UniFiNatRule]:
+        """
+        Translates OPNsense Source NAT (Outbound) and 1:1 NAT into UniFi Target NAT rules.
+        """
+        nat_rules: List[UniFiNatRule] = []
+
+        # 1. Map Source NAT (Outbound)
+        for snat in getattr(self.cfg, "source_nats", []):
+            if not snat.enabled:
+                continue
+
+            # Standard WAN masquerade rules are native in UniFi OS
+            is_generic_wan = (
+                snat.interface.lower() in ("wan", "opt_wan")
+                and (snat.destination_net == "any")
+                and not snat.target
+                and not snat.static_nat_port
+                and not snat.nonat
+            )
+            status = "native" if is_generic_wan else "accepted"
+            rule_type = "masquerade" if (not snat.target and not snat.nonat) else "snat"
+            origin = "OPNsense Source NAT (Standard Masquerade)" if is_generic_wan else "OPNsense Source NAT"
+            if snat.static_nat_port:
+                origin += " [Static Port / VoIP]"
+
+            nat_rules.append(
+                UniFiNatRule(
+                    name=snat.descr or f"SNAT-{snat.interface.upper()}-{snat.source_net}",
+                    nat_type=rule_type,
+                    interface=snat.interface.upper(),
+                    source_address=snat.source_net,
+                    destination_address=snat.destination_net,
+                    translated_ip=snat.target or "(Interface IP)",
+                    translated_port=snat.target_port,
+                    static_port=snat.static_nat_port,
+                    enabled=snat.enabled,
+                    description=snat.descr or ("Standard WAN Masquerade" if is_generic_wan else "Benutzerdefiniertes Source NAT"),
+                    origin=origin,
+                    status=status,
+                )
+            )
+
+        # 2. Map One-to-One NAT (1:1 BINAT)
+        for oto in getattr(self.cfg, "onetoone_nats", []):
+            if not oto.enabled:
+                continue
+
+            nat_rules.append(
+                UniFiNatRule(
+                    name=oto.descr or f"1to1-{oto.internal_net}-{oto.external_net}",
+                    nat_type="1to1",
+                    interface=oto.interface.upper(),
+                    source_address=oto.internal_net,
+                    destination_address="any",
+                    translated_ip=oto.external_net,
+                    static_port=True,
+                    enabled=oto.enabled,
+                    description=oto.descr or f"1:1 BINAT Zuordnung ({oto.internal_net} <-> {oto.external_net})",
+                    origin="OPNsense 1:1 NAT",
+                    status="accepted",
+                )
+            )
+
+        return nat_rules
 
     def map_firewall_rules(
         self,

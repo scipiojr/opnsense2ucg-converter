@@ -73,6 +73,41 @@ class OPNsensePortForward:
 
 
 @dataclass
+class OPNsenseSourceNat:
+    interface: str                  # e.g. "wan"
+    source_net: str                 # e.g. "192.168.1.0/24" or alias
+    source_port: str = "any"
+    destination_net: str = "any"
+    destination_port: str = "any"
+    target: str = ""                # Target IP / Translation address (e.g. WAN IP, VIP)
+    target_port: str = ""
+    static_nat_port: bool = False   # Preserve original source port (VoIP / Gaming)
+    descr: str = ""
+    enabled: bool = True
+    nonat: bool = False             # Do NOT translate (exception rule)
+
+
+@dataclass
+class OPNsenseOneToOneNat:
+    interface: str                  # e.g. "wan"
+    internal_net: str               # Internal IP / subnet
+    external_net: str               # External IP / subnet
+    nat_type: str = "binat"         # "binat" or "nat"
+    descr: str = ""
+    enabled: bool = True
+
+
+@dataclass
+class OPNsenseNptv6:
+    interface: str                  # e.g. "wan"
+    source_prefix: str              # Internal IPv6 prefix (e.g. fd00:...)
+    destination_prefix: str         # External IPv6 prefix
+    track_interface: str = ""       # Dynamic prefix tracking interface
+    descr: str = ""
+    enabled: bool = True
+
+
+@dataclass
 class OPNsenseFilterRule:
     id: str
     interface: str                  # e.g. "lan", "opt1", "wan", "floating"
@@ -132,6 +167,9 @@ class OPNsenseConfig:
     dhcp_ranges: List[OPNsenseDhcpRange] = field(default_factory=list)
     aliases: List[OPNsenseAlias] = field(default_factory=list)
     port_forwards: List[OPNsensePortForward] = field(default_factory=list)
+    source_nats: List[OPNsenseSourceNat] = field(default_factory=list)
+    onetoone_nats: List[OPNsenseOneToOneNat] = field(default_factory=list)
+    nptv6_rules: List[OPNsenseNptv6] = field(default_factory=list)
     filter_rules: List[OPNsenseFilterRule] = field(default_factory=list)
     dns_hosts: List[OPNsenseDnsHost] = field(default_factory=list)
     wireguard_servers: List[OPNsenseWireGuard] = field(default_factory=list)
@@ -250,6 +288,22 @@ class UniFiPortForward:
 
 
 @dataclass
+class UniFiNatRule:
+    name: str
+    nat_type: str                   # "snat", "masquerade", "1to1", "dnat"
+    interface: str = "WAN"          # e.g. "WAN", "WAN2"
+    source_address: str = "any"
+    destination_address: str = "any"
+    translated_ip: str = ""
+    translated_port: str = ""
+    static_port: bool = False
+    enabled: bool = True
+    description: str = ""
+    origin: str = "OPNsense Source NAT"
+    status: str = "accepted"        # "accepted", "native", "omitted"
+
+
+@dataclass
 class UniFiWlan:
     name: str                       # SSID
     security: str = "wpapsk"        # "wpapsk", "wpa2", "wpa3", "open"
@@ -314,6 +368,7 @@ class UniFiTargetConfig:
     firewall_rules: List[UniFiFirewallRule] = field(default_factory=list)
     fixed_ips: List[UniFiFixedIp] = field(default_factory=list)
     port_forwards: List[UniFiPortForward] = field(default_factory=list)
+    nat_rules: List[UniFiNatRule] = field(default_factory=list)
     dns_records: List[UniFiDnsRecord] = field(default_factory=list)
     traffic_routes: List[UniFiTrafficRoute] = field(default_factory=list)
     traffic_rules: List[UniFiTrafficRule] = field(default_factory=list)

@@ -35,7 +35,7 @@ from src.translator.remapper import remap_ip_address
 
 logger = logging.getLogger(__name__)
 
-LIST_KEYS = ["networks", "fixed_ips", "wlans", "firewall_rules", "firewall_groups", "port_forwards", "dns_records"]
+LIST_KEYS = ["networks", "fixed_ips", "wlans", "firewall_rules", "firewall_groups", "port_forwards", "nat_rules", "dns_records"]
 
 STRATEGIES = {
     "network": ["cascade", "reassign"],
@@ -43,6 +43,7 @@ STRATEGIES = {
     "client_name": ["restore"],
     "wlan": ["skip"],
     "device": ["skip"],
+    "nat": ["skip"],
 }
 
 
@@ -67,6 +68,10 @@ def client_name_item_id(mac: str) -> str:
 
 def device_item_id(mac: str) -> str:
     return f"device:{(mac or '').lower()}"
+
+
+def nat_item_id(name: str) -> str:
+    return f"nat:{name}"
 
 
 def parse_item_id(item_id: str) -> Tuple[str, str]:
@@ -168,7 +173,7 @@ class ExclusionEngine:
             return plan
 
         # Order matters: networks first (largest blast radius), then clients, then the rest
-        order = {"network": 0, "client": 1, "client_name": 2, "wlan": 3, "device": 4}
+        order = {"network": 0, "client": 1, "client_name": 2, "wlan": 3, "nat": 4, "device": 5}
         for excl in sorted(exclusions, key=lambda e: order.get(parse_item_id(e.get("item_id", ""))[0], 9)):
             kind, ref = parse_item_id(excl.get("item_id", ""))
             try:
@@ -180,6 +185,8 @@ class ExclusionEngine:
                     ExclusionEngine._plan_client_name(cfg, plan, excl, ref)
                 elif kind == "wlan":
                     ExclusionEngine._plan_wlan(cfg, plan, excl, ref)
+                elif kind == "nat":
+                    ExclusionEngine._plan_nat(cfg, plan, excl, ref)
                 elif kind == "device":
                     plan.devices_excluded.append(ref)
                     plan.consequence(excl["item_id"], "info",
@@ -365,6 +372,18 @@ class ExclusionEngine:
             return
         plan.exclude("wlans", idx, f"WLAN '{ssid}' wird nicht migriert.", src)
         plan.consequence(src, "warning", f"Geräte, die nur über '{ssid}' verbunden sind, verlieren nach der Umstellung den WLAN-Zugang.")
+
+    @staticmethod
+    def _plan_nat(cfg: UniFiTargetConfig, plan: ExclusionPlan, excl: Dict[str, Any], name: str):
+        src = excl["item_id"]
+        idx = next((i for i, n in enumerate(getattr(cfg, "nat_rules", [])) if n.name == name), None)
+        if idx is not None:
+            plan.exclude("nat_rules", idx, f"NAT-Regel '{name}' wird nicht migriert.", src)
+            return
+        # Also check port_forwards
+        pf_idx = next((i for i, p in enumerate(getattr(cfg, "port_forwards", [])) if p.name == name), None)
+        if pf_idx is not None:
+            plan.exclude("port_forwards", pf_idx, f"Port-Weiterleitung '{name}' wird nicht migriert.", src)
 
     # -----------------------------------------------------------------------
     # Applying

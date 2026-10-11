@@ -319,8 +319,8 @@
           <span class="text-[10px] text-slate-400 block mb-0.5">Aliase / Gruppen</span>
           <span id="metric-aliases" class="text-xl font-bold text-indigo-400">0</span>
         </div>
-        <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
-          <span class="text-[10px] text-slate-400 block mb-0.5">NAT Forwards</span>
+        <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center" title="Port Forwards, Source NAT (Outbound), 1:1 NAT & NPTv6">
+          <span class="text-[10px] text-slate-400 block mb-0.5">NAT (DNAT / SNAT / 1:1)</span>
           <span id="metric-nat" class="text-xl font-bold text-amber-400">0</span>
         </div>
         <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
@@ -694,7 +694,10 @@
               <i class="fa-solid fa-layer-group text-purple-400"></i> Gruppen
             </button>
             <button onclick="switchReviewCategory('forwards')" id="rev-cat-forwards" class="subview-inactive px-3 py-1.5 rounded-lg transition">
-              <i class="fa-solid fa-arrow-turn-down text-amber-400"></i> Port-Forwards &amp; Feste IPs
+              <i class="fa-solid fa-right-left text-amber-400"></i> NAT &amp; Port-Forwards
+            </button>
+            <button onclick="switchReviewCategory('fixedips')" id="rev-cat-fixedips" class="subview-inactive px-3 py-1.5 rounded-lg transition">
+              <i class="fa-solid fa-address-card text-emerald-400"></i> Feste IPs
             </button>
             <button onclick="switchReviewCategory('wlans')" id="rev-cat-wlans" class="subview-inactive px-3 py-1.5 rounded-lg transition">
               <i class="fa-solid fa-wifi text-purple-400"></i> Wi-Fi
@@ -861,54 +864,89 @@
         </div>
       </div>
 
-      <!-- SECTION: FORWARDS & FIXED IPS -->
-      <div id="review-sec-forwards" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-          <h3 class="text-sm font-semibold flex items-center gap-2 text-amber-400">
-            <i class="fa-solid fa-arrow-turn-down"></i> Port Forwarding Regeln
-          </h3>
-          <div class="overflow-x-auto">
-            <table class="w-full text-xs text-left">
-              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
-                <tr>
-                  <th class="py-2 px-3">Name</th>
-                  <th class="py-2 px-3">Externer Port</th>
-                  <th class="py-2 px-3">Ziel-IP &amp; Port</th>
-                  <th class="py-2 px-3">Protokoll</th>
-                </tr>
-              </thead>
-              <tbody id="unifi-forwards-tbody" class="divide-y divide-slate-800">
-                <tr><td colspan="4" class="py-3 text-center text-slate-500">Keine Port-Weiterleitungen vorhanden.</td></tr>
-              </tbody>
-            </table>
+      <!-- SECTION: NAT & PORT FORWARDS -->
+      <div id="review-sec-forwards" class="space-y-6">
+        <!-- Grid for Destination NAT & Source NAT/1:1 NAT -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- 1. Destination NAT (Port Forwarding) -->
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-semibold flex items-center gap-2 text-amber-400">
+                <i class="fa-solid fa-arrow-turn-down"></i> Destination NAT (Port Forwards)
+              </h3>
+              <span class="text-[11px] text-slate-400">Eingehende Weiterleitungen</span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs text-left">
+                <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+                  <tr>
+                    <th class="py-2 px-3">Name</th>
+                    <th class="py-2 px-3">Externer Port</th>
+                    <th class="py-2 px-3">Ziel-IP &amp; Port</th>
+                    <th class="py-2 px-3">Protokoll</th>
+                    <th class="py-2 px-3 text-right">Aktionen</th>
+                  </tr>
+                </thead>
+                <tbody id="unifi-forwards-tbody" class="divide-y divide-slate-800">
+                  <tr><td colspan="5" class="py-3 text-center text-slate-500">Keine Port-Weiterleitungen vorhanden.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 2. Source NAT (Outbound & 1:1 NAT) -->
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-semibold flex items-center gap-2 text-orange-400">
+                <i class="fa-solid fa-right-left"></i> Source NAT &amp; 1:1 BINAT
+              </h3>
+              <span class="text-[11px] text-slate-400">Ausgehende Adressübersetzung</span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs text-left">
+                <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+                  <tr>
+                    <th class="py-2 px-3">Typ</th>
+                    <th class="py-2 px-3">Quell-Netz</th>
+                    <th class="py-2 px-3">Übersetzung (WAN-IP)</th>
+                    <th class="py-2 px-3">Status</th>
+                    <th class="py-2 px-3 text-right">Aktionen</th>
+                  </tr>
+                </thead>
+                <tbody id="unifi-nat-tbody" class="divide-y divide-slate-800">
+                  <tr><td colspan="5" class="py-3 text-center text-slate-500">Keine benutzerdefinierten Source NAT-Regeln vorhanden.</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
+      </div>
 
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-          <div class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold flex items-center gap-2 text-emerald-400">
-              <i class="fa-solid fa-address-card"></i> Feste Client-IPs (Fixed IPs)
-            </h3>
-            <button onclick="openAddFixedIpModal()" class="px-2.5 py-1 bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 rounded-lg text-xs font-medium flex items-center gap-1 transition">
-              <i class="fa-solid fa-plus"></i> Neue feste IP
-            </button>
-          </div>
-          <div class="overflow-x-auto max-h-60 overflow-y-auto">
-            <table class="w-full text-xs text-left">
-              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40 sticky top-0">
-                <tr>
-                  <th class="py-2 px-3">Gerät</th>
-                  <th class="py-2 px-3">Feste IP</th>
-                  <th class="py-2 px-3">MAC-Adresse</th>
-                  <th class="py-2 px-3">Netzwerk</th>
-                  <th class="py-2 px-3 text-right">Aktionen</th>
-                </tr>
-              </thead>
-              <tbody id="unifi-fixedips-tbody" class="divide-y divide-slate-800">
-                <tr><td colspan="5" class="py-3 text-center text-slate-500">Keine festen IP-Reservierungen vorhanden.</td></tr>
-              </tbody>
-            </table>
-          </div>
+      <!-- SECTION: FIXED IPS -->
+      <div id="review-sec-fixedips" class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold flex items-center gap-2 text-emerald-400">
+            <i class="fa-solid fa-address-card"></i> Feste Client-IPs (Fixed IPs)
+          </h3>
+          <button onclick="openAddFixedIpModal()" class="px-2.5 py-1 bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 rounded-lg text-xs font-medium flex items-center gap-1 transition">
+            <i class="fa-solid fa-plus"></i> Neue feste IP
+          </button>
+        </div>
+        <div class="overflow-x-auto max-h-72 overflow-y-auto">
+          <table class="w-full text-xs text-left">
+            <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40 sticky top-0">
+              <tr>
+                <th class="py-2 px-3">Gerät</th>
+                <th class="py-2 px-3">Feste IP</th>
+                <th class="py-2 px-3">MAC-Adresse</th>
+                <th class="py-2 px-3">Netzwerk</th>
+                <th class="py-2 px-3 text-right">Aktionen</th>
+              </tr>
+            </thead>
+            <tbody id="unifi-fixedips-tbody" class="divide-y divide-slate-800">
+              <tr><td colspan="5" class="py-3 text-center text-slate-500">Keine festen IP-Reservierungen vorhanden.</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -1767,8 +1805,8 @@
 
     const EXCL_KEY_LABELS = {
       networks: 'Netzwerke', fixed_ips: 'Feste IPs', wlans: 'WLANs', firewall_groups: 'Firewall-Gruppen',
-      firewall_rules: 'Firewall-Regeln', port_forwards: 'Port-Weiterleitungen', dns_records: 'DNS-Einträge',
-      devices: 'Geräte', clients: 'Clients'
+      firewall_rules: 'Firewall-Regeln', port_forwards: 'Port-Weiterleitungen', nat_rules: 'NAT-Regeln',
+      dns_records: 'DNS-Einträge', devices: 'Geräte', clients: 'Clients'
     };
 
     function renderConsequences(list) {
@@ -1894,7 +1932,7 @@
     // Tab 3 Category Filter Switching & Instant Search
     // -------------------------------------------------------------------------
     function switchReviewCategory(catId) {
-      const cats = ['all', 'networks', 'rules', 'groups', 'forwards', 'wlans', 'services'];
+      const cats = ['all', 'networks', 'rules', 'groups', 'forwards', 'fixedips', 'wlans', 'services'];
       cats.forEach(c => {
         const btn = document.getElementById('rev-cat-' + c);
         if (btn) {
@@ -1909,6 +1947,7 @@
         rules: ['review-sec-rules'],
         groups: ['review-sec-groups'],
         forwards: ['review-sec-forwards'],
+        fixedips: ['review-sec-fixedips'],
         wlans: ['review-sec-wlans'],
         services: ['review-sec-services']
       };
@@ -2099,8 +2138,8 @@
       const s = data.summary;
       document.getElementById('metric-vlans').innerText = s.interfaces_count;
       document.getElementById('metric-dhcp').innerText = s.static_leases_count;
-      document.getElementById('metric-aliases').innerText = s.aliases_count;
-      document.getElementById('metric-nat').innerText = s.port_forwards_count;
+      document.getElementById('metric-nat').innerText = s.total_nat_count || s.port_forwards_count || 0;
+      document.getElementById('metric-nat').title = `${s.port_forwards_count || 0} Port-Forwards, ${s.source_nats_count || 0} Source NAT, ${s.onetoone_nats_count || 0} 1:1 NAT, ${s.nptv6_count || 0} NPTv6`;
       document.getElementById('metric-rules').innerText = s.filter_rules_count;
       document.getElementById('metric-omitted').innerText = s.omitted_count || 0;
       document.getElementById('omitted-badge').innerText = (s.omitted_count || 0) + ' Elemente';
@@ -2610,20 +2649,54 @@
         }
       }
 
-      // Port Forwards
+      // Port Forwards (Destination NAT)
       const fwdTbody = document.getElementById('unifi-forwards-tbody');
       if (fwdTbody) {
         if (forwards.length === 0) {
-          fwdTbody.innerHTML = '<tr><td colspan="4" class="py-3 text-center text-slate-500">Keine Port-Weiterleitungen vorhanden.</td></tr>';
+          fwdTbody.innerHTML = '<tr><td colspan="5" class="py-3 text-center text-slate-500">Keine Port-Weiterleitungen vorhanden.</td></tr>';
         } else {
           fwdTbody.innerHTML = forwards.map(p => `
             <tr class="hover:bg-slate-800/40 ${migRowClass(p.migration)}">
               <td class="py-2 px-3 font-medium text-slate-200">${p.name} ${migBadge(p.migration)}</td>
-              <td class="py-2 px-3 font-mono text-amber-400">${p.dst_port}</td>
+              <td class="py-2 px-3 font-mono text-amber-400 font-semibold">${p.dst_port}</td>
               <td class="py-2 px-3 font-mono text-slate-300">${p.fwd_ip}:${p.fwd_port}</td>
-              <td class="py-2 px-3 font-mono text-slate-400">${p.protocol}</td>
+              <td class="py-2 px-3 font-mono text-slate-400">${(p.protocol || 'both').toUpperCase()}</td>
+              <td class="py-2 px-3 text-right whitespace-nowrap">
+                ${excludeToggleBtn('nat:' + p.name, p.migration, true)}
+              </td>
             </tr>
           `).join('');
+        }
+      }
+
+      // Source NAT & 1:1 NAT Rules
+      const natTbody = document.getElementById('unifi-nat-tbody');
+      const natRules = u.nat_rules || [];
+      if (natTbody) {
+        if (natRules.length === 0) {
+          natTbody.innerHTML = '<tr><td colspan="5" class="py-3 text-center text-slate-500">Keine benutzerdefinierten Source NAT-Regeln vorhanden (Standard WAN Masquerade aktiv).</td></tr>';
+        } else {
+          natTbody.innerHTML = natRules.map(n => {
+            const typeBadge = n.nat_type === '1to1'
+              ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-800">1:1 BINAT</span>'
+              : n.static_port
+              ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800">SNAT (Static Port)</span>'
+              : '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-950 text-sky-300 border border-sky-800">SNAT</span>';
+            const statusBadge = n.status === 'native'
+              ? '<span class="px-1.5 py-0.5 rounded text-[9px] bg-slate-800 text-slate-400">Nativ in UniFi</span>'
+              : '<span class="px-1.5 py-0.5 rounded text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800">Konvertiert</span>';
+            return `
+              <tr class="hover:bg-slate-800/40 ${migRowClass(n.migration)}">
+                <td class="py-2 px-3">${typeBadge} <span class="font-semibold text-slate-200 ml-1">${n.name}</span> ${migBadge(n.migration)}</td>
+                <td class="py-2 px-3 font-mono text-slate-300">${n.source_address}</td>
+                <td class="py-2 px-3 font-mono text-amber-400 font-semibold">${n.translated_ip || '(WAN-IP)'}</td>
+                <td class="py-2 px-3">${statusBadge}</td>
+                <td class="py-2 px-3 text-right whitespace-nowrap">
+                  ${excludeToggleBtn('nat:' + n.name, n.migration, true)}
+                </td>
+              </tr>
+            `;
+          }).join('');
         }
       }
 

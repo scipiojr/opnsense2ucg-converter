@@ -128,6 +128,15 @@ def _apply_xml_content(xml_content: str) -> Dict[str, Any]:
         "static_leases_count": len(state.opnsense_cfg.static_leases),
         "aliases_count": len(state.opnsense_cfg.aliases),
         "port_forwards_count": len(state.opnsense_cfg.port_forwards),
+        "source_nats_count": len(getattr(state.opnsense_cfg, "source_nats", [])),
+        "onetoone_nats_count": len(getattr(state.opnsense_cfg, "onetoone_nats", [])),
+        "nptv6_count": len(getattr(state.opnsense_cfg, "nptv6_rules", [])),
+        "total_nat_count": (
+            len(state.opnsense_cfg.port_forwards)
+            + len(getattr(state.opnsense_cfg, "source_nats", []))
+            + len(getattr(state.opnsense_cfg, "onetoone_nats", []))
+            + len(getattr(state.opnsense_cfg, "nptv6_rules", []))
+        ),
         "filter_rules_count": len(state.opnsense_cfg.filter_rules),
         "omitted_count": len(state.opnsense_cfg.omitted_items),
         "modem_management": (
@@ -393,6 +402,23 @@ def _raw_unifi_config_dict(cfg: Optional[UniFiTargetConfig] = None) -> Dict[str,
                 "protocol": p.protocol,
             }
             for p in cfg.port_forwards
+        ],
+        "nat_rules": [
+            {
+                "name": n.name,
+                "nat_type": n.nat_type,
+                "interface": n.interface,
+                "source_address": n.source_address,
+                "destination_address": n.destination_address,
+                "translated_ip": n.translated_ip,
+                "translated_port": n.translated_port,
+                "static_port": n.static_port,
+                "enabled": n.enabled,
+                "description": n.description,
+                "origin": n.origin,
+                "status": n.status,
+            }
+            for n in getattr(cfg, "nat_rules", [])
         ],
         "dns_records": [
             {

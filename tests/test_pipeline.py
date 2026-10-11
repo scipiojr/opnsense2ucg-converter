@@ -171,6 +171,118 @@ def test_vdsl_modem_management_migration():
     assert added.vlan_id == 99
 
 
+def test_nat_conversion():
+    """
+    Tests parsing and translation of all 4 NAT types from OPNsense:
+    1. Destination NAT (Port Forwarding)
+    2. Source NAT (Outbound NAT / Static Port)
+    3. One-to-One NAT (1:1 BINAT)
+    4. NPTv6 (Network Prefix Translation IPv6)
+    """
+    xml_with_all_nat = """<?xml version="1.0"?>
+    <opnsense>
+      <version>26.7.5</version>
+      <interfaces>
+        <wan><enable>1</enable><if>igb0</if><descr>WAN</descr><ipaddr>dhcp</ipaddr></wan>
+        <lan><enable>1</enable><if>igb1</if><descr>LAN</descr><ipaddr>192.168.1.1</ipaddr><subnet>24</subnet></lan>
+      </interfaces>
+      <nat>
+        <!-- 1. Destination NAT (Port Forward) -->
+        <rule>
+          <interface>wan</interface>
+          <protocol>tcp</protocol>
+          <destination><network>wanip</network><port>8443</port></destination>
+          <target>192.168.1.50</target>
+          <local-port>443</local-port>
+          <descr>HTTPS Inbound Forward</descr>
+        </rule>
+        <!-- 2. Source NAT (Outbound) -->
+        <outbound>
+          <mode>hybrid</mode>
+          <rule>
+            <interface>wan</interface>
+            <source><network>192.168.1.200/32</network><port>any</port></source>
+            <destination><network>any</network><port>any</port></destination>
+            <target>203.0.113.5</target>
+            <staticnatport>1</staticnatport>
+            <descr>VoIP PBX Static Port SNAT</descr>
+          </rule>
+        </outbound>
+        <!-- 3. One-to-One NAT -->
+        <onetoone>
+          <interface>wan</interface>
+          <source>192.168.1.100</source>
+          <external>203.0.113.10</external>
+          <type>binat</type>
+          <descr>DMZ Web Server 1:1 NAT</descr>
+        </onetoone>
+        <!-- 4. NPTv6 -->
+        <npt>
+          <interface>wan</interface>
+          <source>fd00:abcd:1234::/64</source>
+          <destination>2001:db8:abcd:1234::/64</destination>
+          <descr>Office IPv6 NPT Translation</descr>
+        </npt>
+      </nat>
+    </opnsense>
+    """
+    parser = OPNsenseParser(xml_with_all_nat)
+    cfg = parser.parse()
+
+    # 1. Assert OPNsense Parser extracted all 4 types
+    assert len(cfg.port_forwards) == 1
+    assert cfg.port_forwards[0].target_ip == "192.168.1.50"
+    assert cfg.port_forwards[0].target_port == "443"
+
+    assert len(cfg.source_nats) == 1
+    assert cfg.source_nats[0].source_net == "192.168.1.200/32"
+    assert cfg.source_nats[0].target == "203.0.113.5"
+    assert cfg.source_nats[0].static_nat_port is True
+    assert "VoIP" in cfg.source_nats[0].descr
+
+    assert len(cfg.onetoone_nats) == 1
+    assert cfg.onetoone_nats[0].internal_net == "192.168.1.100"
+    assert cfg.onetoone_nats[0].external_net == "203.0.113.10"
+
+    assert len(cfg.nptv6_rules) == 1
+    assert cfg.nptv6_rules[0].source_prefix == "fd00:abcd:1234::/64"
+    assert cfg.nptv6_rules[0].destination_prefix == "2001:db8:abcd:1234::/64"
+
+    # 2. Check Omitted Items guidance for NPTv6 and 1:1 NAT
+    npt_omitted = next((o for o in cfg.omitted_items if o.category == "NAT / IPv6"), None)
+    assert npt_omitted is not None
+    assert "Prefix Delegation" in npt_omitted.recommendation
+
+    oto_omitted = next((o for o in cfg.omitted_items if o.category == "NAT / 1:1"), None)
+    assert oto_omitted is not None
+    assert "Additional IP Addresses" in oto_omitted.recommendation
+
+    # 3. Assert UniFi Mapper translates rules
+    mapper = UniFiMapper(cfg)
+    target = mapper.map_all()
+
+    # Destination NAT (Port Forward)
+    assert len(target.port_forwards) == 1
+    assert target.port_forwards[0].fwd_ip == "192.168.1.50"
+    assert target.port_forwards[0].fwd_port == "443"
+
+    # Source NAT & 1:1 NAT in target.nat_rules
+    assert len(target.nat_rules) == 2  # 1 SNAT + 1 1:1 NAT
+    snat_rule = next((r for r in target.nat_rules if r.nat_type == "snat"), None)
+    assert snat_rule is not None
+    assert snat_rule.source_address == "192.168.1.200/32"
+    assert snat_rule.translated_ip == "203.0.113.5"
+    assert snat_rule.static_port is True
+
+    oto_rule = next((r for r in target.nat_rules if r.nat_type == "1to1"), None)
+    assert oto_rule is not None
+    assert oto_rule.source_address == "192.168.1.100"
+    assert oto_rule.translated_ip == "203.0.113.10"
+
+    print("SUCCESS: Full NAT conversion test (Destination NAT, Source NAT, 1:1 NAT, NPTv6) passed cleanly!")
+
+
 if __name__ == "__main__":
     test_parser_and_mapper()
     test_vdsl_modem_management_migration()
+    test_nat_conversion()

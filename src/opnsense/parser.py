@@ -12,6 +12,9 @@ from src.models import (
     OPNsenseDhcpRange,
     OPNsenseAlias,
     OPNsensePortForward,
+    OPNsenseSourceNat,
+    OPNsenseOneToOneNat,
+    OPNsenseNptv6,
     OPNsenseFilterRule,
     OPNsenseDnsHost,
     OPNsenseWireGuard,
@@ -52,8 +55,11 @@ class OPNsenseParser:
         # 4. Parse Aliases
         config.aliases = self._parse_aliases()
 
-        # 5. Parse NAT Port Forwards
+        # 5. Parse NAT (Port Forwarding, Source NAT, One-to-One NAT, NPTv6)
         config.port_forwards = self._parse_nat()
+        config.source_nats = self._parse_source_nat()
+        config.onetoone_nats = self._parse_onetoone_nat()
+        config.nptv6_rules = self._parse_nptv6()
 
         # 6. Parse Firewall Filter Rules
         config.filter_rules = self._parse_filter_rules()
@@ -385,7 +391,212 @@ class OPNsenseParser:
                         enabled=not disabled,
                     )
                 )
+        # Also support MVC DNAT rules (<OPNsense><Firewall><Filter><dnat><rule>)
+        for rule in self.root.findall(".//OPNsense/Firewall/Filter/dnat/rule"):
+            enabled = self._get_text(rule, "enabled") != "0"
+            interface = self._get_text(rule, "interface") or "wan"
+            protocol = self._get_text(rule, "protocol") or "tcp"
+            target_ip = self._get_text(rule, "target")
+            target_port = self._get_text(rule, "target_port")
+            dst_port = self._get_text(rule, "destination_port")
+            dst_net = self._get_text(rule, "destination_net") or "wanip"
+            descr = self._get_text(rule, "description") or self._get_text(rule, "descr")
+            src_net = self._get_text(rule, "source_net") or "any"
+
+            if target_ip and (target_port or dst_port):
+                port_forwards.append(
+                    OPNsensePortForward(
+                        interface=interface,
+                        protocol=protocol,
+                        src_ip=src_net,
+                        src_port="any",
+                        dst_ip=dst_net,
+                        dst_port=dst_port or target_port,
+                        target_ip=target_ip,
+                        target_port=target_port or dst_port,
+                        descr=descr,
+                        enabled=enabled,
+                    )
+                )
+
         return port_forwards
+
+    def _parse_source_nat(self) -> List[OPNsenseSourceNat]:
+        """
+        Parses Source NAT / Outbound NAT rules from both legacy (<nat><outbound><rule>)
+        and modern MVC (<OPNsense><Firewall><Filter><snatrules><rule>).
+        """
+        snat_rules: List[OPNsenseSourceNat] = []
+
+        # 1. Legacy <nat><outbound><rule>
+        for rule in self.root.findall(".//nat/outbound/rule"):
+            interface = self._get_text(rule, "interface") or "wan"
+            disabled = rule.find("disabled") is not None
+            nonat = self._get_text(rule, "nonat") == "1" or rule.find("nonat") is not None
+            staticnatport = self._get_text(rule, "staticnatport") == "1" or rule.find("staticnatport") is not None
+            descr = self._get_text(rule, "descr")
+            target = self._get_text(rule, "target") or self._get_text(rule, "translation")
+
+            src_node = rule.find("source")
+            src_net = "any"
+            src_port = "any"
+            if src_node is not None:
+                src_net = self._get_text(src_node, "network") or self._get_text(src_node, "address") or "any"
+                src_port = self._get_text(src_node, "port") or "any"
+
+            dst_node = rule.find("destination")
+            dst_net = "any"
+            dst_port = "any"
+            if dst_node is not None:
+                dst_net = self._get_text(dst_node, "network") or self._get_text(dst_node, "address") or "any"
+                dst_port = self._get_text(dst_node, "port") or "any"
+
+            snat_rules.append(
+                OPNsenseSourceNat(
+                    interface=interface,
+                    source_net=src_net,
+                    source_port=src_port,
+                    destination_net=dst_net,
+                    destination_port=dst_port,
+                    target=target,
+                    static_nat_port=staticnatport,
+                    descr=descr,
+                    enabled=not disabled,
+                    nonat=nonat,
+                )
+            )
+
+        # 2. Modern MVC <OPNsense><Firewall><Filter><snatrules><rule>
+        for rule in self.root.findall(".//OPNsense/Firewall/Filter/snatrules/rule"):
+            enabled = self._get_text(rule, "enabled") != "0"
+            interface = self._get_text(rule, "interface") or "wan"
+            nonat = self._get_text(rule, "nonat") == "1"
+            staticnatport = self._get_text(rule, "staticnatport") == "1"
+            descr = self._get_text(rule, "description") or self._get_text(rule, "descr")
+            src_net = self._get_text(rule, "source_net") or "any"
+            src_port = self._get_text(rule, "source_port") or "any"
+            dst_net = self._get_text(rule, "destination_net") or "any"
+            dst_port = self._get_text(rule, "destination_port") or "any"
+            target = self._get_text(rule, "target")
+            target_port = self._get_text(rule, "target_port")
+
+            snat_rules.append(
+                OPNsenseSourceNat(
+                    interface=interface,
+                    source_net=src_net,
+                    source_port=src_port,
+                    destination_net=dst_net,
+                    destination_port=dst_port,
+                    target=target,
+                    target_port=target_port,
+                    static_nat_port=staticnatport,
+                    descr=descr,
+                    enabled=enabled,
+                    nonat=nonat,
+                )
+            )
+
+        return snat_rules
+
+    def _parse_onetoone_nat(self) -> List[OPNsenseOneToOneNat]:
+        """
+        Parses 1:1 NAT rules from both legacy (<nat><onetoone>) and modern MVC (<Filter><onetoone><rule>).
+        """
+        onetoone_rules: List[OPNsenseOneToOneNat] = []
+
+        # 1. Legacy <nat><onetoone>
+        for rule in self.root.findall(".//nat/onetoone"):
+            disabled = rule.find("disabled") is not None
+            interface = self._get_text(rule, "interface") or "wan"
+            internal = self._get_text(rule, "source") or self._get_text(rule, "internal") or self._get_text(rule, "internal-subnet")
+            external = self._get_text(rule, "external") or self._get_text(rule, "external-subnet")
+            descr = self._get_text(rule, "descr")
+            nat_type = self._get_text(rule, "type") or "binat"
+
+            if internal and external:
+                onetoone_rules.append(
+                    OPNsenseOneToOneNat(
+                        interface=interface,
+                        internal_net=internal,
+                        external_net=external,
+                        nat_type=nat_type,
+                        descr=descr,
+                        enabled=not disabled,
+                    )
+                )
+
+        # 2. Modern MVC <OPNsense><Firewall><Filter><onetoone><rule>
+        for rule in self.root.findall(".//OPNsense/Firewall/Filter/onetoone/rule"):
+            enabled = self._get_text(rule, "enabled") != "0"
+            interface = self._get_text(rule, "interface") or "wan"
+            internal = self._get_text(rule, "source_net")
+            external = self._get_text(rule, "external")
+            descr = self._get_text(rule, "description") or self._get_text(rule, "descr")
+            nat_type = self._get_text(rule, "type") or "binat"
+
+            if internal and external:
+                onetoone_rules.append(
+                    OPNsenseOneToOneNat(
+                        interface=interface,
+                        internal_net=internal,
+                        external_net=external,
+                        nat_type=nat_type,
+                        descr=descr,
+                        enabled=enabled,
+                    )
+                )
+
+        return onetoone_rules
+
+    def _parse_nptv6(self) -> List[OPNsenseNptv6]:
+        """
+        Parses NPTv6 (IPv6 Network Prefix Translation) rules from legacy and MVC models.
+        """
+        npt_rules: List[OPNsenseNptv6] = []
+
+        # 1. Legacy <nat><npt>
+        for rule in self.root.findall(".//nat/npt"):
+            disabled = rule.find("disabled") is not None
+            interface = self._get_text(rule, "interface") or "wan"
+            src_prefix = self._get_text(rule, "source") or self._get_text(rule, "internal")
+            dst_prefix = self._get_text(rule, "destination") or self._get_text(rule, "external")
+            track_if = self._get_text(rule, "trackif")
+            descr = self._get_text(rule, "descr")
+
+            if src_prefix:
+                npt_rules.append(
+                    OPNsenseNptv6(
+                        interface=interface,
+                        source_prefix=src_prefix,
+                        destination_prefix=dst_prefix,
+                        track_interface=track_if,
+                        descr=descr,
+                        enabled=not disabled,
+                    )
+                )
+
+        # 2. Modern MVC <OPNsense><Firewall><Filter><npt><rule>
+        for rule in self.root.findall(".//OPNsense/Firewall/Filter/npt/rule"):
+            enabled = self._get_text(rule, "enabled") != "0"
+            interface = self._get_text(rule, "interface") or "wan"
+            src_prefix = self._get_text(rule, "source_net")
+            dst_prefix = self._get_text(rule, "destination_net")
+            track_if = self._get_text(rule, "trackif")
+            descr = self._get_text(rule, "description") or self._get_text(rule, "descr")
+
+            if src_prefix:
+                npt_rules.append(
+                    OPNsenseNptv6(
+                        interface=interface,
+                        source_prefix=src_prefix,
+                        destination_prefix=dst_prefix,
+                        track_interface=track_if,
+                        descr=descr,
+                        enabled=enabled,
+                    )
+                )
+
+        return npt_rules
 
     def _parse_filter_rules(self) -> List[OPNsenseFilterRule]:
         filter_rules: List[OPNsenseFilterRule] = []
@@ -593,6 +804,42 @@ class OPNsenseParser:
                     severity="info",
                 )
             )
+        # 5. NPTv6 (IPv6 Network Prefix Translation)
+        if config and config.nptv6_rules:
+            for npt in config.nptv6_rules:
+                if not npt.enabled:
+                    continue
+                omitted.append(
+                    OmittedItem(
+                        category="NAT / IPv6",
+                        name=f"NPTv6 Prefix Translation ({npt.source_prefix} -> {npt.destination_prefix or npt.track_interface})",
+                        reason="UniFi OS Gateways unterstützen kein direktes NPTv6 (statische IPv6-Prefix-Translation). Stattdessen nutzt UniFi natives IPv6 Routing mit Prefix Delegation (PD) oder NAT66.",
+                        recommendation=(
+                            "Konfigurieren Sie unter 'Settings > Internet > WAN' IPv6 Prefix Delegation (z.B. /56 oder /64). "
+                            "Aktivieren Sie im Ziel-Netzwerk unter 'Settings > Networks' natives IPv6 (Prefix Delegation), "
+                            "damit Clients direkt global routingfähige Adressen (GUA) erhalten."
+                        ),
+                        severity="warning",
+                    )
+                )
+
+        # 6. One-to-One NAT (Multi-WAN IP Allocation)
+        if config and config.onetoone_nats:
+            for oto in config.onetoone_nats:
+                if not oto.enabled:
+                    continue
+                omitted.append(
+                    OmittedItem(
+                        category="NAT / 1:1",
+                        name=f"1:1 NAT ({oto.internal_net} <-> {oto.external_net})",
+                        reason="UniFi OS bildet 1:1 NAT nicht über ein einzelnes binat-Objekt ab, sondern über zusätzliche öffentliche WAN-IP-Adressen.",
+                        recommendation=(
+                            f"Tragen Sie die externe IP {oto.external_net} in UniFi unter 'Settings > Internet > WAN > Additional IP Addresses' ein. "
+                            f"Die entsprechenden Port-Forwards und SNAT-Regeln für {oto.internal_net} wurden vorbereitet."
+                        ),
+                        severity="info",
+                    )
+                )
 
         return omitted
 
