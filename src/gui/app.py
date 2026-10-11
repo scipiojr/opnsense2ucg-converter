@@ -364,7 +364,11 @@ def _raw_unifi_config_dict(cfg: Optional[UniFiTargetConfig] = None) -> Dict[str,
             "ucg_networks": networks_from_sources,
         }
     has_explicit_attr = any(getattr(o, "is_management", False) for o in cfg.networks)
-    has_mgmt_in_name = any("mgmt" in o.name.lower() or "management" in o.name.lower() for o in cfg.networks)
+    has_mgmt_in_name = any(
+        ("mgmt" in o.name.lower() or "management" in o.name.lower())
+        and "modem" not in o.name.lower()
+        for o in cfg.networks
+    )
     return {
         "networks": [
             {
@@ -378,11 +382,18 @@ def _raw_unifi_config_dict(cfg: Optional[UniFiTargetConfig] = None) -> Dict[str,
                 "purpose": getattr(n, "purpose", "corporate") or "corporate",
                 "domain_name": getattr(n, "domain_name", "local") or "local",
                 "is_management": bool(
-                    getattr(n, "is_management", False)
-                    if has_explicit_attr
+                    False
+                    if (
+                        "modem" in n.name.lower()
+                        or (getattr(cfg, "modem_management", None) and getattr(cfg.modem_management, "allocated_vlan", None) == n.vlan_id)
+                    )
                     else (
-                        ("mgmt" in n.name.lower() or "management" in n.name.lower())
-                        or (n.vlan_id == 1 and not has_mgmt_in_name)
+                        getattr(n, "is_management", False)
+                        if has_explicit_attr
+                        else (
+                            (("mgmt" in n.name.lower() or "management" in n.name.lower()) and "modem" not in n.name.lower())
+                            or (n.vlan_id == 1 and not has_mgmt_in_name)
+                        )
                     )
                 ),
             }
@@ -1532,6 +1543,15 @@ async def update_network_api(request: Request) -> JSONResponse:
         if "is_management" in net_data:
             new_is_mgmt = bool(net_data.get("is_management"))
             if new_is_mgmt:
+                if "modem" in target.name.lower() or (
+                    getattr(state.unifi_cfg, "modem_management", None)
+                    and getattr(state.unifi_cfg.modem_management, "allocated_vlan", None) == target.vlan_id
+                ):
+                    return JSONResponse({
+                        "success": False,
+                        "error": "Das VDSL-Modem-Transfernetzwerk muss isoliert bleiben und kann nicht als UniFi Management-VLAN deklariert werden."
+                    }, status_code=200)
+
                 # Exclusive 1: unmark all others
                 for n in state.unifi_cfg.networks:
                     n.is_management = False
@@ -1742,12 +1762,12 @@ async def apply_strategy_a_api(request: Request) -> JSONResponse:
         # 1. Locate Management network (VLAN 10 or name matching "management"/"mgmt")
         source_net = None
         for n in state.unifi_cfg.networks:
-            if n.vlan_id == 10:
+            if n.vlan_id == 10 and "modem" not in n.name.lower():
                 source_net = n
                 break
         if not source_net:
             for n in state.unifi_cfg.networks:
-                if "mgmt" in n.name.lower() or "management" in n.name.lower():
+                if ("mgmt" in n.name.lower() or "management" in n.name.lower()) and "modem" not in n.name.lower():
                     source_net = n
                     break
 
@@ -2155,14 +2175,25 @@ async def get_modem_management_api(request: Request) -> JSONResponse:
                         "vlan_id": i.vlan_tag if i.vlan_tag is not None else (1 if i.id.lower() == "lan" else None),
                     })
 
+        modem_net_name = "Modem-WebUI"
+        modem_vlan_id = (mm.allocated_vlan if mm and mm.allocated_vlan else 99)
+        if state.unifi_cfg:
+            existing_modem_n = next((
+                n for n in state.unifi_cfg.networks
+                if n.vlan_id != 1 and not getattr(n, "is_management", False) and ("modem" in n.name.lower() or n.name in ["MODEM_MGMT", "Modem-WebUI"] or (mm and n.vlan_id == mm.allocated_vlan))
+            ), None)
+            if existing_modem_n:
+                modem_net_name = existing_modem_n.name
+                modem_vlan_id = existing_modem_n.vlan_id
+
         data = {
             "enabled": bool(mm and mm.detected),
             "interface_id": mm.interface_id if mm else "",
             "interface_descr": mm.interface_descr if mm else "",
             "modem_ip": mm.modem_ip if mm else "192.168.2.1",
             "gateway_cidr": f"{mm.gateway_ip}/{mm.subnet}" if (mm and mm.gateway_ip and mm.subnet) else "192.168.2.2/24",
-            "vlan_id": mm.allocated_vlan if (mm and mm.allocated_vlan) else 99,
-            "network_name": "MODEM_MGMT",
+            "vlan_id": modem_vlan_id,
+            "network_name": modem_net_name,
             "reason": mm.reason if mm else "",
             "available_interfaces": interfaces,
         }
@@ -2183,7 +2214,7 @@ async def save_modem_management_api(request: Request) -> JSONResponse:
         modem_ip = str(body.get("modem_ip", "192.168.2.1")).strip()
         gateway_cidr = str(body.get("gateway_cidr", "192.168.2.2/24")).strip()
         vlan_id = int(body.get("vlan_id", 99))
-        network_name = str(body.get("network_name", "MODEM_MGMT")).strip() or "MODEM_MGMT"
+        network_name = str(body.get("network_name", "Modem-WebUI")).strip() or "Modem-WebUI"
 
         if enabled:
             if not modem_ip:
@@ -2193,6 +2224,21 @@ async def save_modem_management_api(request: Request) -> JSONResponse:
             if "/" not in gateway_cidr:
                 gateway_cidr = f"{gateway_cidr}/24"
             gw_ip_part, gw_subnet_part = gateway_cidr.split("/", 1)
+
+            # Safeguard: Never allow modem on VLAN 1
+            if vlan_id == 1:
+                return JSONResponse({
+                    "success": False,
+                    "error": "VLAN 1 ist das UniFi Management-/Standard-Netzwerk. Das Modem-Transfernetzwerk muss auf einem separaten VLAN (z. B. 99) liegen, um eine Verschmelzung mit dem Management-VLAN zu verhindern."
+                }, status_code=200)
+
+            # Check collision with existing management network
+            mgmt_net = next((n for n in state.unifi_cfg.networks if getattr(n, "is_management", False) or n.vlan_id == 1), None)
+            if mgmt_net and (vlan_id == mgmt_net.vlan_id or (network_name.lower() == mgmt_net.name.lower() and "modem" not in network_name.lower())):
+                return JSONResponse({
+                    "success": False,
+                    "error": f"VLAN {vlan_id} bzw. der Name '{network_name}' kollidiert mit dem Management-Netzwerk '{mgmt_net.name}'. Bitte ein separates VLAN (z. B. 99) wählen."
+                }, status_code=200)
 
             # Look up interface description if provided
             iface_descr = network_name
@@ -2242,15 +2288,23 @@ async def save_modem_management_api(request: Request) -> JSONResponse:
                 state.unifi_cfg.omitted_items = list(state.opnsense_cfg.omitted_items)
 
             # 3. Update UniFi Network in state.unifi_cfg.networks
+            # Find strictly existing modem network (never overwrite Management or VLAN 1)
             existing_net = next((
                 n for n in state.unifi_cfg.networks
-                if n.name == network_name or n.vlan_id == vlan_id or n.name == "MODEM_MGMT" or "modem" in n.name.lower()
+                if n.vlan_id != 1
+                and not getattr(n, "is_management", False)
+                and (
+                    "modem" in n.name.lower()
+                    or n.name in [network_name, "MODEM_MGMT", "Modem-WebUI"]
+                    or (state.unifi_cfg.modem_management and n.vlan_id == getattr(state.unifi_cfg.modem_management, "allocated_vlan", None))
+                )
             ), None)
             if existing_net:
                 existing_net.name = network_name
                 existing_net.vlan_id = vlan_id
                 existing_net.gateway_cidr = gateway_cidr
                 existing_net.dhcp_enabled = False
+                existing_net.is_management = False
             else:
                 new_net = UniFiNetwork(
                     name=network_name,
@@ -2258,6 +2312,7 @@ async def save_modem_management_api(request: Request) -> JSONResponse:
                     gateway_cidr=gateway_cidr,
                     purpose="corporate",
                     dhcp_enabled=False,
+                    is_management=False,
                 )
                 state.unifi_cfg.networks.append(new_net)
 
@@ -2317,10 +2372,18 @@ async def save_modem_management_api(request: Request) -> JSONResponse:
             if hasattr(state.unifi_cfg, "omitted_items") and state.opnsense_cfg:
                 state.unifi_cfg.omitted_items = list(state.opnsense_cfg.omitted_items)
 
-            # Remove modem network
+            # Remove modem network - strictly never remove management or VLAN 1
             state.unifi_cfg.networks = [
                 n for n in state.unifi_cfg.networks
-                if not (n.name == network_name or n.name == "MODEM_MGMT" or (old_vlan is not None and n.vlan_id == old_vlan) or "modem" in n.name.lower())
+                if not (
+                    n.vlan_id != 1
+                    and not getattr(n, "is_management", False)
+                    and (
+                        n.name in [network_name, "MODEM_MGMT", "Modem-WebUI"]
+                        or "modem" in n.name.lower()
+                        or (old_vlan is not None and n.vlan_id == old_vlan)
+                    )
+                )
             ]
 
             # Remove pinhole rule
@@ -2329,6 +2392,11 @@ async def save_modem_management_api(request: Request) -> JSONResponse:
                 if not (getattr(r, "origin", "") == "Modem Management Pinhole" or "Modem WebUI" in r.name)
             ]
             msg = "VDSL-Modem Management wurde deaktiviert und entfernt."
+
+        # Ensure primary Management network (VLAN 1) is clearly marked as is_management if none set
+        vlan1_net = next((n for n in state.unifi_cfg.networks if n.vlan_id == 1), None)
+        if vlan1_net and not any(getattr(n, "is_management", False) for n in state.unifi_cfg.networks):
+            vlan1_net.is_management = True
 
         _rereconcile()
         unifi_dict = get_unifi_config_dict()

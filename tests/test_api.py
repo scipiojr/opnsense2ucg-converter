@@ -949,12 +949,41 @@ def test_modem_management_manual_configuration_api():
     assert state.opnsense_cfg.modem_management.modem_ip == "192.168.1.1"
     assert state.opnsense_cfg.modem_management.allocated_vlan == 88
 
-    # Verify UniFi network created
+    # Verify UniFi network created and strictly isolated from Management
     modem_net = next((n for n in state.unifi_cfg.networks if n.vlan_id == 88), None)
     assert modem_net is not None
     assert modem_net.name == "MODEM_MGMT"
     assert modem_net.gateway_cidr == "192.168.1.2/24"
     assert modem_net.dhcp_enabled is False
+    assert getattr(modem_net, "is_management", False) is False
+
+    # Verify LAN / Management network remains distinct on VLAN 1
+    vlan1_net = next((n for n in state.unifi_cfg.networks if n.vlan_id == 1), None)
+    assert vlan1_net is not None
+    assert "modem" not in vlan1_net.name.lower()
+    assert vlan1_net.is_management is True
+
+    # Verify unifi_mapped response does NOT mark modem as management
+    resp_modem_net = next((n for n in save_data["unifi_mapped"]["networks"] if n["vlan_id"] == 88), None)
+    assert resp_modem_net is not None
+    assert resp_modem_net["is_management"] is False
+    resp_vlan1 = next((n for n in save_data["unifi_mapped"]["networks"] if n["vlan_id"] == 1), None)
+    assert resp_vlan1 is not None
+    assert resp_vlan1["is_management"] is True
+
+    # Test rejecting invalid configuration of modem on VLAN 1
+    invalid_req = MockRequest({
+        "enabled": True,
+        "interface_id": "lan",
+        "modem_ip": "192.168.1.1",
+        "gateway_cidr": "192.168.1.2/24",
+        "vlan_id": 1,
+        "network_name": "MODEM_ON_VLAN1"
+    })
+    invalid_res = run(save_modem_management_api(invalid_req))
+    invalid_data = json.loads(invalid_res.body.decode("utf-8"))
+    assert invalid_data["success"] is False
+    assert "VLAN 1" in invalid_data["error"]
 
     # Verify pinhole firewall rule created on LAN_IN
     pinhole = next((r for r in state.unifi_cfg.firewall_rules if r.dst_address == "192.168.1.1"), None)

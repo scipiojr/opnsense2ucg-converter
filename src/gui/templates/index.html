@@ -1966,7 +1966,13 @@
 
     function isNetworkManagement(n) {
       if (!n) return false;
-      return !!n.is_management || (n.vlan_id === 1 && (((n.name || '').toLowerCase().includes('mgmt')) || ((n.name || '').toLowerCase().includes('management')) || n.name === 'Default'));
+      const nameL = (n.name || '').toLowerCase();
+      // Modem network can NEVER be the management network
+      if (nameL.includes('modem')) return false;
+      const mm = (lastSummary && lastSummary.modem_management) || (lastParsedData && lastParsedData.modem_management);
+      if (mm && mm.allocated_vlan && n.vlan_id === mm.allocated_vlan) return false;
+
+      return !!n.is_management || (n.vlan_id === 1 && (nameL.includes('mgmt') || nameL.includes('management') || n.name === 'Default' || n.name === 'LAN'));
     }
 
     function getManagementBadgeHtml(idx, isMgmt) {
@@ -1991,7 +1997,8 @@
       }
 
       if (targetVlan !== null) {
-        const idx = currentNetworks.findIndex(n => n.vlan_id === targetVlan);
+        // If target is VLAN 1 (LAN), make sure not to match a modem network
+        const idx = currentNetworks.findIndex(n => n.vlan_id === targetVlan && !(targetVlan === 1 && (n.name || '').toLowerCase().includes('modem')));
         if (idx !== -1) return idx;
       }
 
@@ -2038,10 +2045,10 @@
       ifTable.innerHTML = ifaces.map(i => {
         const netIdx = findNetworkIndexForInterface(i);
         const net = netIdx >= 0 ? currentNetworks[netIdx] : null;
-        const isMgmt = net ? isNetworkManagement(net) : (i.vlan === 1 || i.vlan_id === 1 || (i.descr && (i.descr.toLowerCase().includes('mgmt') || i.descr.toLowerCase().includes('management'))));
-        const mgmtBadge = netIdx >= 0 ? getManagementBadgeHtml(netIdx, isMgmt) : '';
         const mm = (lastSummary && lastSummary.modem_management) || (lastParsedData && lastParsedData.modem_management);
-        const isModem = mm && mm.detected && (mm.interface_id === i.id || (i.descr && i.descr.toLowerCase().includes('modem')));
+        const isModem = mm && mm.detected && (mm.interface_id === i.id || (i.descr && i.descr.toLowerCase().includes('modem') && !i.descr.toLowerCase().includes('lan')));
+        const isMgmt = !isModem && (net ? isNetworkManagement(net) : (i.vlan === 1 || i.vlan_id === 1 || (i.id && i.id.toLowerCase() === 'lan') || (i.descr && (i.descr.toLowerCase().includes('mgmt') || i.descr.toLowerCase().includes('management')) && !i.descr.toLowerCase().includes('modem'))));
+        const mgmtBadge = netIdx >= 0 ? getManagementBadgeHtml(netIdx, isMgmt) : '';
         const modemBadge = isModem
           ? `<button type="button" onclick="openModemManagementModal('${i.id}')" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 inline-flex items-center gap-1 shadow-sm transition hover:scale-105 cursor-pointer" title="Als VDSL-Modem konfiguriert – Klicken zum Bearbeiten"><i class="fa-solid fa-server text-cyan-400"></i> VDSL-Modem <i class="fa-solid fa-gear text-[9px] opacity-70 ml-0.5"></i></button>`
           : (i.id.toLowerCase() !== 'wan' ? `<button type="button" onclick="openModemManagementModal('${i.id}')" class="px-2 py-0.5 rounded-full text-[10px] font-medium text-slate-400 hover:text-cyan-300 hover:bg-cyan-950/40 border border-slate-800 hover:border-cyan-800/60 inline-flex items-center gap-1 transition cursor-pointer" title="Klicken, um dieses Interface als VDSL-Modem-Transfernetz festzulegen"><i class="fa-solid fa-server text-[9px]"></i> Als Modem festlegen</button>` : '');
@@ -2980,11 +2987,11 @@
           netTbody.innerHTML = '<tr><td colspan="6" class="py-3 text-center text-slate-500">Keine Netzwerke geladen.</td></tr>';
         } else {
           netTbody.innerHTML = currentNetworks.map((n, idx) => {
-            const isMgmt = isNetworkManagement(n);
             const mm = (lastSummary && lastSummary.modem_management) || (lastParsedData && lastParsedData.modem_management) || (u && u.modem_management);
-            const isModem = (mm && mm.detected && (n.vlan_id === mm.allocated_vlan || n.name === 'MODEM_MGMT')) || n.name === 'MODEM_MGMT';
+            const isModem = (n.vlan_id !== 1) && ((mm && mm.detected && (n.vlan_id === mm.allocated_vlan || n.name === 'MODEM_MGMT' || n.name === 'Modem-WebUI')) || (n.name || '').toLowerCase().includes('modem'));
+            const isMgmt = !isModem && isNetworkManagement(n);
             const modemBadge = isModem
-              ? `<button type="button" onclick="openModemManagementModal()" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 inline-flex items-center gap-1 shadow-sm transition hover:scale-105 cursor-pointer" title="VDSL-Modem Management – Klicken zum Bearbeiten"><i class="fa-solid fa-server text-cyan-400"></i> Modem-MGMT <i class="fa-solid fa-gear text-[9px] opacity-70 ml-0.5"></i></button>`
+              ? `<button type="button" onclick="openModemManagementModal()" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 inline-flex items-center gap-1 shadow-sm transition hover:scale-105 cursor-pointer" title="VDSL-Modem Management – Klicken zum Bearbeiten"><i class="fa-solid fa-server text-cyan-400"></i> Modem-WebUI <i class="fa-solid fa-gear text-[9px] opacity-70 ml-0.5"></i></button>`
               : '';
             const rowClass = isMgmt ? 'bg-amber-950/15 border-l-4 border-l-amber-500 hover:bg-amber-950/25' : (isModem ? 'bg-cyan-950/15 border-l-4 border-l-cyan-500 hover:bg-cyan-950/25' : `hover:bg-slate-800/40 ${migRowClass(n.migration)}`);
             const nameColor = isMgmt ? 'text-amber-200' : (isModem ? 'text-cyan-300' : 'text-sky-300');
@@ -3268,8 +3275,8 @@
             interface_descr: mm ? mm.interface_descr : '',
             modem_ip: mm ? mm.modem_ip : '192.168.2.1',
             gateway_cidr: (mm && mm.gateway_ip) ? `${mm.gateway_ip}/${mm.subnet || '24'}` : '192.168.2.2/24',
-            vlan_id: mm ? (mm.allocated_vlan || 99) : 99,
-            network_name: 'MODEM_MGMT',
+            vlan_id: (mm && mm.allocated_vlan && mm.allocated_vlan !== 1) ? mm.allocated_vlan : 99,
+            network_name: (mm && mm.interface_descr && mm.interface_descr.toLowerCase().includes('modem')) ? mm.interface_descr : 'Modem-WebUI',
             available_interfaces: rawIfaces.filter(i => i.id.toLowerCase() !== 'wan')
           };
         }
@@ -3305,9 +3312,9 @@
         if (!preselectIfaceId) {
           document.getElementById('modem-form-ip').value = d.modem_ip || '192.168.2.1';
           document.getElementById('modem-form-gateway').value = d.gateway_cidr || '192.168.2.2/24';
-          document.getElementById('modem-form-vlan').value = d.vlan_id || 99;
-          document.getElementById('modem-form-name').value = d.network_name || 'MODEM_MGMT';
-          document.getElementById('modem-wiring-vlan-preview').innerText = d.vlan_id || 99;
+          document.getElementById('modem-form-vlan').value = (d.vlan_id && d.vlan_id !== 1) ? d.vlan_id : 99;
+          document.getElementById('modem-form-name').value = d.network_name || 'Modem-WebUI';
+          document.getElementById('modem-wiring-vlan-preview').innerText = (d.vlan_id && d.vlan_id !== 1) ? d.vlan_id : 99;
         }
 
         const disableBtn = document.getElementById('btn-disable-modem');
@@ -3352,6 +3359,17 @@
       const iface = availableModemInterfaces.find(i => i.id === ifaceId);
       if (!iface) return;
 
+      const isLanOrMgmt = ifaceId.toLowerCase() === 'lan' || iface.vlan === 1 || iface.vlan_id === 1 || (iface.descr && iface.descr.toLowerCase().includes('management'));
+      if (isLanOrMgmt) {
+        document.getElementById('modem-form-gateway').value = '192.168.2.2/24';
+        document.getElementById('modem-form-ip').value = '192.168.2.1';
+        document.getElementById('modem-form-vlan').value = 99;
+        document.getElementById('modem-wiring-vlan-preview').innerText = '99';
+        document.getElementById('modem-form-name').value = 'Modem-WebUI';
+        showToast('Hinweis: LAN/Management bleibt auf VLAN 1. Für das VDSL-Modem wird ein separates Transfernetz (VLAN 99, 192.168.2.0/24) eingerichtet.');
+        return;
+      }
+
       if (iface.ip && iface.ip.includes('.')) {
         const ipWithoutMask = iface.ip.split('/')[0];
         const subnetMask = iface.ip.includes('/') ? iface.ip.split('/')[1] : '24';
@@ -3373,9 +3391,12 @@
       if (iface.vlan && iface.vlan > 1) {
         document.getElementById('modem-form-vlan').value = iface.vlan;
         document.getElementById('modem-wiring-vlan-preview').innerText = iface.vlan;
+      } else {
+        document.getElementById('modem-form-vlan').value = 99;
+        document.getElementById('modem-wiring-vlan-preview').innerText = '99';
       }
       if (iface.descr) {
-        document.getElementById('modem-form-name').value = iface.descr.toLowerCase().includes('modem') ? iface.descr : 'MODEM_MGMT';
+        document.getElementById('modem-form-name').value = iface.descr.toLowerCase().includes('modem') ? iface.descr : 'Modem-WebUI';
       }
     }
 
@@ -3386,7 +3407,11 @@
       const modemIp = document.getElementById('modem-form-ip').value.trim();
       const gatewayCidr = document.getElementById('modem-form-gateway').value.trim();
       const vlanId = parseInt(document.getElementById('modem-form-vlan').value) || 99;
-      const networkName = document.getElementById('modem-form-name').value.trim() || 'MODEM_MGMT';
+      if (vlanId === 1) {
+        showToast('Fehler: VLAN 1 ist das UniFi Management-Netzwerk. Das Modem muss auf einem separaten VLAN (z. B. 99) liegen.', true);
+        return;
+      }
+      const networkName = document.getElementById('modem-form-name').value.trim() || 'Modem-WebUI';
 
       try {
         const res = await fetch('/api/modem-management/save', {
@@ -3436,7 +3461,7 @@
 
     async function disableModemManagement() {
       if (!confirm('Möchten Sie das Modem-Management-Netzwerk und die Pinhole-Firewallregel wirklich entfernen?')) return;
-      const networkName = document.getElementById('modem-form-name').value.trim() || 'MODEM_MGMT';
+      const networkName = document.getElementById('modem-form-name').value.trim() || 'Modem-WebUI';
 
       try {
         const res = await fetch('/api/modem-management/save', {
@@ -3551,8 +3576,15 @@
       document.getElementById('modal-net-domain').value = n.domain_name || 'local';
       
       const isMgmtEl = document.getElementById('modal-net-is-management');
+      const isModemNet = (n.name && n.name.toLowerCase().includes('modem')) || (lastSummary?.modem_management?.allocated_vlan === n.vlan_id);
       if (isMgmtEl) {
-        isMgmtEl.checked = !!n.is_management || (n.vlan_id === 1 && (n.name.toLowerCase().includes('mgmt') || n.name.toLowerCase().includes('management') || n.name === 'Default'));
+        isMgmtEl.checked = !isModemNet && (!!n.is_management || (n.vlan_id === 1 && (n.name.toLowerCase().includes('mgmt') || n.name.toLowerCase().includes('management') || n.name === 'Default')));
+        isMgmtEl.disabled = isModemNet;
+        if (isModemNet) {
+          isMgmtEl.title = "Das VDSL-Modem-Transfernetzwerk muss isoliert bleiben und kann nicht als Management-Netzwerk deklariert werden.";
+        } else {
+          isMgmtEl.title = "";
+        }
       }
       const mgmtBox = document.getElementById('modal-net-mgmt-box');
       if (mgmtBox) {

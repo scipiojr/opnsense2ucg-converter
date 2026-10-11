@@ -109,17 +109,18 @@ class UniFiMapper:
                 and self.cfg.modem_management.interface_id == iface.id
             )
 
-            if is_modem:
-                vlan_id = self.cfg.modem_management.allocated_vlan
-                dhcp_enabled = False
-                net_name = iface.descr if "modem" in iface.descr.lower() else "MODEM_MGMT"
-            elif iface.vlan_tag is not None:
-                vlan_id = iface.vlan_tag
+            # LAN interface is always the default management network (VLAN 1)
+            if iface.id.lower() == "lan":
+                vlan_id = 1
                 dhcp_info = dhcp_map.get(iface.id)
                 dhcp_enabled = dhcp_info is not None
-                net_name = iface.descr or iface.id.upper()
-            elif iface.id.lower() == "lan":
-                vlan_id = 1
+                net_name = iface.descr or "LAN"
+            elif is_modem:
+                vlan_id = self.cfg.modem_management.allocated_vlan
+                dhcp_enabled = False
+                net_name = iface.descr if ("modem" in iface.descr.lower() and "mgmt" not in iface.descr.lower()) else "Modem-WebUI"
+            elif iface.vlan_tag is not None:
+                vlan_id = iface.vlan_tag
                 dhcp_info = dhcp_map.get(iface.id)
                 dhcp_enabled = dhcp_info is not None
                 net_name = iface.descr or iface.id.upper()
@@ -154,8 +155,31 @@ class UniFiMapper:
                     dhcp_start=dhcp_start,
                     dhcp_stop=dhcp_stop,
                     dns_servers=dns_servers,
+                    is_management=(vlan_id == 1),
                 )
             )
+
+        # If modem management is detected/configured, ensure its dedicated network exists and is distinct
+        if self.cfg.modem_management and self.cfg.modem_management.detected:
+            mm = self.cfg.modem_management
+            modem_vlan = mm.allocated_vlan or 99
+            has_modem_net = any(
+                n.vlan_id == modem_vlan or (n.vlan_id != 1 and ("modem" in n.name.lower() or n.name == "MODEM_MGMT"))
+                for n in networks
+            )
+            if not has_modem_net and modem_vlan != 1:
+                gw_cidr = f"{mm.gateway_ip}/{mm.subnet or '24'}" if mm.gateway_ip else "192.168.2.2/24"
+                modem_name = mm.interface_descr if (mm.interface_descr and "modem" in mm.interface_descr.lower() and "mgmt" not in mm.interface_descr.lower()) else "Modem-WebUI"
+                networks.append(
+                    UniFiNetwork(
+                        name=modem_name,
+                        vlan_id=modem_vlan,
+                        gateway_cidr=gw_cidr,
+                        purpose="corporate",
+                        dhcp_enabled=False,
+                        is_management=False,
+                    )
+                )
 
         return networks
 
@@ -647,18 +671,24 @@ class UniFiMapper:
         Manually or programmatically attaches a dedicated Modem-Management network
         and corresponding pinhole rule to a UniFi target configuration.
         """
-        existing = next((n for n in target.networks if n.vlan_id == vlan_id or n.name == "MODEM_MGMT"), None)
+        existing = next((
+            n for n in target.networks
+            if n.vlan_id != 1 and not getattr(n, "is_management", False)
+            and (n.vlan_id == vlan_id or n.name in ["MODEM_MGMT", "Modem-WebUI"] or "modem" in n.name.lower())
+        ), None)
         if not existing:
             modem_net = UniFiNetwork(
-                name="MODEM_MGMT",
+                name="Modem-WebUI",
                 vlan_id=vlan_id,
                 gateway_cidr=gateway_cidr,
                 purpose="corporate",
                 dhcp_enabled=False,
+                is_management=False,
             )
             target.networks.append(modem_net)
         else:
             modem_net = existing
+            modem_net.is_management = False
 
         has_rule = any(r.dst_address == modem_ip for r in target.firewall_rules)
         if not has_rule:
