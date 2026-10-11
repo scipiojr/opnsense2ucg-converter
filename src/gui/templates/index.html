@@ -157,15 +157,15 @@
                   </div>
 
                   <div class="grid grid-cols-3 gap-1.5">
-                    <input type="text" id="src-opn-host" value="192.168.1.1" placeholder="IP / Host" class="col-span-2 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
-                    <input type="number" id="src-opn-port" value="443" class="bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-[11px]" title="Port">
+                    <input type="text" id="src-opn-host" value="192.168.1.1" onchange="saveOpnCredentialsToStorage()" placeholder="IP / Host" class="col-span-2 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                    <input type="number" id="src-opn-port" value="443" onchange="saveOpnCredentialsToStorage()" class="bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-[11px]" title="Port">
                   </div>
 
                   <!-- Web-GUI Login Fields -->
                   <div id="opn-fields-web" class="space-y-1.5">
                     <div class="grid grid-cols-2 gap-1.5">
-                      <input type="text" id="src-opn-user" value="root" placeholder="Benutzer (z. B. root)" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
-                      <input type="password" id="src-opn-pass" placeholder="Web-Passwort" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                      <input type="text" id="src-opn-user" value="root" onchange="saveOpnCredentialsToStorage()" placeholder="Benutzer (z. B. root)" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                      <input type="password" id="src-opn-pass" onchange="saveOpnCredentialsToStorage()" placeholder="Web-Passwort" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
                     </div>
                     <p class="text-[9.5px] text-slate-400 leading-tight">
                       <i class="fa-solid fa-circle-info text-sky-400"></i> Standard-Weblogin. Bei 2FA den 6-stelligen Token an das Passwort anhängen oder API-Key nutzen.
@@ -175,8 +175,8 @@
                   <!-- API-Key Fields -->
                   <div id="opn-fields-api" class="space-y-1.5 hidden">
                     <div class="grid grid-cols-2 gap-1.5">
-                      <input type="text" id="src-opn-key" placeholder="API-Key" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
-                      <input type="password" id="src-opn-secret" placeholder="API-Secret" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                      <input type="text" id="src-opn-key" onchange="saveOpnCredentialsToStorage()" placeholder="API-Key" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                      <input type="password" id="src-opn-secret" onchange="saveOpnCredentialsToStorage()" placeholder="API-Secret" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
                     </div>
                     <p class="text-[9.5px] text-slate-400 leading-tight">
                       <i class="fa-solid fa-key text-amber-400"></i> In OPNsense unter <em>System &gt; Access &gt; Users &gt; [User] &gt; API keys (+)</em> generieren.
@@ -225,14 +225,14 @@
                 </summary>
                 <div class="space-y-2 pt-2 border-t border-slate-800/80 mt-1">
                   <div class="grid grid-cols-3 gap-1.5">
-                    <input type="text" id="src-ucg-host" value="192.168.1.1" onchange="syncUcgCredentials()" placeholder="IP" class="col-span-2 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
-                    <input type="number" id="src-ucg-port" value="443" class="bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-[11px]">
+                    <input type="text" id="src-ucg-host" value="192.168.1.1" onchange="syncUcgCredentials(); saveUcgCredentialsToStorage()" placeholder="IP" class="col-span-2 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                    <input type="number" id="src-ucg-port" value="443" onchange="saveUcgCredentialsToStorage()" class="bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-[11px]">
                   </div>
                   <div class="grid grid-cols-2 gap-1.5">
-                    <input type="text" id="src-ucg-user" value="admin" onchange="syncUcgCredentials()" placeholder="User" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
-                    <input type="password" id="src-ucg-pass" onchange="syncUcgCredentials()" placeholder="Passwort" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                    <input type="text" id="src-ucg-user" value="admin" onchange="syncUcgCredentials(); saveUcgCredentialsToStorage()" placeholder="User" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                    <input type="password" id="src-ucg-pass" onchange="syncUcgCredentials(); saveUcgCredentialsToStorage()" placeholder="Passwort" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
                   </div>
-                  <input type="password" id="src-ucg-apikey" placeholder="API-Key (optional)" class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                  <input type="password" id="src-ucg-apikey" onchange="saveUcgCredentialsToStorage()" placeholder="API-Key (optional)" class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
                   <div class="flex items-center justify-between pt-1">
                     <span id="src-ucg-info" class="text-[10px] text-slate-400 truncate max-w-[120px]">Keine Daten</span>
                     <button onclick="fetchUcgState()" id="btn-fetch-ucg" class="bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] px-2 py-1 rounded font-medium transition">
@@ -271,14 +271,14 @@
                 </summary>
                 <div class="space-y-2 pt-2 border-t border-slate-800/80 mt-1">
                   <div class="grid grid-cols-3 gap-1.5">
-                    <input type="text" id="src-uos-host" value="192.168.1.5" placeholder="IP" class="col-span-2 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
-                    <input type="number" id="src-uos-port" value="8443" class="bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-[11px]">
+                    <input type="text" id="src-uos-host" value="192.168.1.5" onchange="saveUosCredentialsToStorage()" placeholder="IP" class="col-span-2 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                    <input type="number" id="src-uos-port" value="8443" onchange="saveUosCredentialsToStorage()" class="bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-[11px]">
                   </div>
                   <div class="grid grid-cols-2 gap-1.5">
-                    <input type="text" id="src-uos-user" value="admin" placeholder="User" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
-                    <input type="password" id="src-uos-pass" placeholder="Passwort" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                    <input type="text" id="src-uos-user" value="admin" onchange="saveUosCredentialsToStorage()" placeholder="User" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                    <input type="password" id="src-uos-pass" onchange="saveUosCredentialsToStorage()" placeholder="Passwort" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
                   </div>
-                  <input type="password" id="src-uos-apikey" placeholder="API-Key (optional)" class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
+                  <input type="password" id="src-uos-apikey" onchange="saveUosCredentialsToStorage()" placeholder="API-Key (optional)" class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200 text-[11px]">
                   <div class="flex items-center justify-between pt-1">
                     <span id="src-uos-info" class="text-[10px] text-slate-400 truncate max-w-[120px]">Keine Daten</span>
                     <button onclick="fetchUosState()" id="btn-fetch-uos" class="bg-purple-600 hover:bg-purple-500 text-white text-[11px] px-2 py-1 rounded font-medium transition">
@@ -1143,15 +1143,15 @@
           </h2>
           <div>
             <label class="block text-xs font-medium text-slate-300 mb-1">UCG-Max IP / Hostname</label>
-            <input type="text" id="ucg-host" value="192.168.1.1" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200">
+            <input type="text" id="ucg-host" value="192.168.1.1" onchange="syncFromDeployCredentials(); saveUcgCredentialsToStorage()" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200">
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-300 mb-1">Admin Benutzername</label>
-            <input type="text" id="ucg-user" value="admin" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200">
+            <input type="text" id="ucg-user" value="admin" onchange="syncFromDeployCredentials(); saveUcgCredentialsToStorage()" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200">
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-300 mb-1">Admin Passwort</label>
-            <input type="password" id="ucg-pass" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200" placeholder="Passwort des Gateways">
+            <input type="password" id="ucg-pass" onchange="syncFromDeployCredentials(); saveUcgCredentialsToStorage()" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200" placeholder="Passwort des Gateways">
           </div>
           <div class="pt-2 flex flex-col space-y-2">
             <button onclick="testGatewayConnection()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs py-2 rounded-lg font-medium transition flex items-center justify-center gap-1.5">
@@ -3985,13 +3985,72 @@
       }
     }
 
+    function saveOpnCredentialsToStorage() {
+      try {
+        const h = document.getElementById('src-opn-host')?.value;
+        const port = document.getElementById('src-opn-port')?.value;
+        const u = document.getElementById('src-opn-user')?.value;
+        const p = document.getElementById('src-opn-pass')?.value;
+        const k = document.getElementById('src-opn-key')?.value;
+        const s = document.getElementById('src-opn-secret')?.value;
+
+        if (h !== undefined) localStorage.setItem('opn_host', h);
+        if (port !== undefined) localStorage.setItem('opn_port', port);
+        if (u !== undefined) localStorage.setItem('opn_user', u);
+        if (p !== undefined) localStorage.setItem('opn_pass', p);
+        if (k !== undefined) localStorage.setItem('opn_key', k);
+        if (s !== undefined) localStorage.setItem('opn_secret', s);
+      } catch (_) {}
+    }
+
+    function saveUcgCredentialsToStorage() {
+      try {
+        const h = document.getElementById('src-ucg-host')?.value || document.getElementById('ucg-host')?.value;
+        const port = document.getElementById('src-ucg-port')?.value;
+        const u = document.getElementById('src-ucg-user')?.value || document.getElementById('ucg-user')?.value;
+        const p = document.getElementById('src-ucg-pass')?.value || document.getElementById('ucg-pass')?.value;
+        const k = document.getElementById('src-ucg-apikey')?.value;
+
+        if (h !== undefined) localStorage.setItem('ucg_host', h);
+        if (port !== undefined) localStorage.setItem('ucg_port', port);
+        if (u !== undefined) localStorage.setItem('ucg_user', u);
+        if (p !== undefined) localStorage.setItem('ucg_pass', p);
+        if (k !== undefined) localStorage.setItem('ucg_apikey', k);
+      } catch (_) {}
+    }
+
+    function saveUosCredentialsToStorage() {
+      try {
+        const h = document.getElementById('src-uos-host')?.value;
+        const port = document.getElementById('src-uos-port')?.value;
+        const u = document.getElementById('src-uos-user')?.value;
+        const p = document.getElementById('src-uos-pass')?.value;
+        const k = document.getElementById('src-uos-apikey')?.value;
+
+        if (h !== undefined) localStorage.setItem('uos_host', h);
+        if (port !== undefined) localStorage.setItem('uos_port', port);
+        if (u !== undefined) localStorage.setItem('uos_user', u);
+        if (p !== undefined) localStorage.setItem('uos_pass', p);
+        if (k !== undefined) localStorage.setItem('uos_apikey', k);
+      } catch (_) {}
+    }
+
     function syncUcgCredentials() {
       const h = document.getElementById('src-ucg-host')?.value;
       const u = document.getElementById('src-ucg-user')?.value;
       const p = document.getElementById('src-ucg-pass')?.value;
-      if (document.getElementById('ucg-host') && h) document.getElementById('ucg-host').value = h;
-      if (document.getElementById('ucg-user') && u) document.getElementById('ucg-user').value = u;
-      if (document.getElementById('ucg-pass') && p) document.getElementById('ucg-pass').value = p;
+      if (document.getElementById('ucg-host') && h !== undefined) document.getElementById('ucg-host').value = h;
+      if (document.getElementById('ucg-user') && u !== undefined) document.getElementById('ucg-user').value = u;
+      if (document.getElementById('ucg-pass') && p !== undefined) document.getElementById('ucg-pass').value = p;
+    }
+
+    function syncFromDeployCredentials() {
+      const h = document.getElementById('ucg-host')?.value;
+      const u = document.getElementById('ucg-user')?.value;
+      const p = document.getElementById('ucg-pass')?.value;
+      if (document.getElementById('src-ucg-host') && h !== undefined) document.getElementById('src-ucg-host').value = h;
+      if (document.getElementById('src-ucg-user') && u !== undefined) document.getElementById('src-ucg-user').value = u;
+      if (document.getElementById('src-ucg-pass') && p !== undefined) document.getElementById('src-ucg-pass').value = p;
     }
 
     function renderReconciliation(rep) {
@@ -4298,7 +4357,13 @@
           try {
             localStorage.setItem('opn_host', host);
             localStorage.setItem('opn_port', port);
-            if (opnAuthMode === 'web') localStorage.setItem('opn_user', user);
+            if (opnAuthMode === 'web') {
+              localStorage.setItem('opn_user', user);
+              if (pass) localStorage.setItem('opn_pass', pass);
+            } else {
+              if (key) localStorage.setItem('opn_key', key);
+              if (secret) localStorage.setItem('opn_secret', secret);
+            }
           } catch (_) {}
 
           renderParsedData(data);
@@ -4366,7 +4431,13 @@
           document.getElementById('ucg-source-status').className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800';
           document.getElementById('ucg-source-status').innerText = 'Verbunden (v' + (data.version || 'aktiv') + ')';
           document.getElementById('src-ucg-info').innerText = `${data.summary.networks_count} Netze, ${data.summary.firewall_rules_count} Regeln`;
-          showToast('UCG-Max Ist-Zustand erfolgreich eingelesen!');
+          try {
+            localStorage.setItem('ucg_host', host);
+            localStorage.setItem('ucg_port', port);
+            localStorage.setItem('ucg_user', user);
+            if (pass) localStorage.setItem('ucg_pass', pass);
+            if (apiKey) localStorage.setItem('ucg_apikey', apiKey);
+          } catch (_) {}
 
           if (data.reconciliation) renderReconciliation(data.reconciliation);
           if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
@@ -4413,8 +4484,13 @@
         if (data.success) {
           document.getElementById('uos-source-status').className = 'px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800';
           document.getElementById('uos-source-status').innerText = 'Verbunden (v' + (data.version || 'aktiv') + ')';
-          document.getElementById('src-uos-info').innerText = `${data.wlans_count} SSIDs, ${data.devices_count} APs`;
-          showToast('UniFi Server Ist-Zustand & WLANs erfolgreich eingelesen!');
+          try {
+            localStorage.setItem('uos_host', host);
+            localStorage.setItem('uos_port', port);
+            localStorage.setItem('uos_user', user);
+            if (pass) localStorage.setItem('uos_pass', pass);
+            if (apiKey) localStorage.setItem('uos_apikey', apiKey);
+          } catch (_) {}
 
           if (data.wlans) renderWlans(data.wlans);
           if (data.reconciliation) renderReconciliation(data.reconciliation);
@@ -4796,14 +4872,54 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       try {
-        const savedMode = localStorage.getItem('opn_auth_mode');
-        if (savedMode) switchOpnAuthMode(savedMode);
-        const savedHost = localStorage.getItem('opn_host');
-        if (savedHost && document.getElementById('src-opn-host')) document.getElementById('src-opn-host').value = savedHost;
-        const savedPort = localStorage.getItem('opn_port');
-        if (savedPort && document.getElementById('src-opn-port')) document.getElementById('src-opn-port').value = savedPort;
-        const savedUser = localStorage.getItem('opn_user');
-        if (savedUser && document.getElementById('src-opn-user')) document.getElementById('src-opn-user').value = savedUser;
+        // --- OPNsense Credentials & Mode ---
+        const savedOpnMode = localStorage.getItem('opn_auth_mode');
+        if (savedOpnMode) switchOpnAuthMode(savedOpnMode);
+        const savedOpnHost = localStorage.getItem('opn_host');
+        if (savedOpnHost && document.getElementById('src-opn-host')) document.getElementById('src-opn-host').value = savedOpnHost;
+        const savedOpnPort = localStorage.getItem('opn_port');
+        if (savedOpnPort && document.getElementById('src-opn-port')) document.getElementById('src-opn-port').value = savedOpnPort;
+        const savedOpnUser = localStorage.getItem('opn_user');
+        if (savedOpnUser && document.getElementById('src-opn-user')) document.getElementById('src-opn-user').value = savedOpnUser;
+        const savedOpnPass = localStorage.getItem('opn_pass');
+        if (savedOpnPass && document.getElementById('src-opn-pass')) document.getElementById('src-opn-pass').value = savedOpnPass;
+        const savedOpnKey = localStorage.getItem('opn_key');
+        if (savedOpnKey && document.getElementById('src-opn-key')) document.getElementById('src-opn-key').value = savedOpnKey;
+        const savedOpnSecret = localStorage.getItem('opn_secret');
+        if (savedOpnSecret && document.getElementById('src-opn-secret')) document.getElementById('src-opn-secret').value = savedOpnSecret;
+
+        // --- UCG-Max Gateway Credentials ---
+        const savedUcgHost = localStorage.getItem('ucg_host');
+        if (savedUcgHost) {
+          if (document.getElementById('src-ucg-host')) document.getElementById('src-ucg-host').value = savedUcgHost;
+          if (document.getElementById('ucg-host')) document.getElementById('ucg-host').value = savedUcgHost;
+        }
+        const savedUcgPort = localStorage.getItem('ucg_port');
+        if (savedUcgPort && document.getElementById('src-ucg-port')) document.getElementById('src-ucg-port').value = savedUcgPort;
+        const savedUcgUser = localStorage.getItem('ucg_user');
+        if (savedUcgUser) {
+          if (document.getElementById('src-ucg-user')) document.getElementById('src-ucg-user').value = savedUcgUser;
+          if (document.getElementById('ucg-user')) document.getElementById('ucg-user').value = savedUcgUser;
+        }
+        const savedUcgPass = localStorage.getItem('ucg_pass');
+        if (savedUcgPass) {
+          if (document.getElementById('src-ucg-pass')) document.getElementById('src-ucg-pass').value = savedUcgPass;
+          if (document.getElementById('ucg-pass')) document.getElementById('ucg-pass').value = savedUcgPass;
+        }
+        const savedUcgApiKey = localStorage.getItem('ucg_apikey');
+        if (savedUcgApiKey && document.getElementById('src-ucg-apikey')) document.getElementById('src-ucg-apikey').value = savedUcgApiKey;
+
+        // --- UniFi Server (UOS) Credentials ---
+        const savedUosHost = localStorage.getItem('uos_host');
+        if (savedUosHost && document.getElementById('src-uos-host')) document.getElementById('src-uos-host').value = savedUosHost;
+        const savedUosPort = localStorage.getItem('uos_port');
+        if (savedUosPort && document.getElementById('src-uos-port')) document.getElementById('src-uos-port').value = savedUosPort;
+        const savedUosUser = localStorage.getItem('uos_user');
+        if (savedUosUser && document.getElementById('src-uos-user')) document.getElementById('src-uos-user').value = savedUosUser;
+        const savedUosPass = localStorage.getItem('uos_pass');
+        if (savedUosPass && document.getElementById('src-uos-pass')) document.getElementById('src-uos-pass').value = savedUosPass;
+        const savedUosApiKey = localStorage.getItem('uos_apikey');
+        if (savedUosApiKey && document.getElementById('src-uos-apikey')) document.getElementById('src-uos-apikey').value = savedUosApiKey;
       } catch (_) {}
     });
   </script>
