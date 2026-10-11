@@ -1041,6 +1041,131 @@ def test_modem_management_manual_configuration_api():
     print("SUCCESS: test_modem_management_manual_configuration_api passed cleanly!")
 
 
+def test_network_merge_and_domain_part_features():
+    from src.models import UniFiTargetConfig, UniFiNetwork, UniFiSourceState
+    from src.gui.app import (
+        add_network_api,
+        edit_item_api,
+        remap_preview_api,
+        remap_network_api,
+        get_unifi_config_dict,
+    )
+    from src.translator.remapper import VlanRemapper
+    from src.translator.merger import MultiSourceMerger
+
+    class MockRequest:
+        def __init__(self, json_data=None):
+            self._json = json_data or {}
+        async def json(self):
+            return self._json
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    run = lambda coro: loop.run_until_complete(coro)
+
+    state.reset()
+    state.unifi_cfg = UniFiTargetConfig()
+    state.unifi_cfg.networks = [
+        UniFiNetwork(name="LAN", vlan_id=10, gateway_cidr="192.168.10.1/24", domain_name="home.lan"),
+        UniFiNetwork(name="Existing_UCG_Net", vlan_id=50, gateway_cidr="192.168.50.1/24", domain_name="ucg.lan"),
+    ]
+
+    # 1. Add network with domain_name
+    add_req = MockRequest({
+        "network": {
+            "name": "DMZ",
+            "vlan_id": 60,
+            "gateway_cidr": "192.168.60.1/24",
+            "domain_name": "dmz.internal",
+            "is_management": False,
+        }
+    })
+    add_res = run(add_network_api(add_req))
+    add_data = json.loads(add_res.body.decode("utf-8"))
+    assert add_data["success"] is True
+    dmz_net = next((n for n in state.unifi_cfg.networks if n.vlan_id == 60), None)
+    assert dmz_net is not None
+    assert dmz_net.domain_name == "dmz.internal"
+
+    # 2. Edit item domain_name via edit_item_api
+    edit_req = MockRequest({
+        "item_id": "network:60",
+        "updates": {
+            "domain_name": "dmz.corporate.local"
+        }
+    })
+    edit_res = run(edit_item_api(edit_req))
+    edit_data = json.loads(edit_res.body.decode("utf-8"))
+    assert edit_data["success"] is True
+    assert dmz_net.domain_name == "dmz.corporate.local"
+
+    # 3. Remap preview with target_domain
+    prev_req = MockRequest({
+        "source_vlan": 10,
+        "new_vlan_id": 70,
+        "new_gateway_cidr": "192.168.70.1/24",
+        "new_name": "Migrated-LAN",
+        "target_domain": "migrated.local",
+    })
+    prev_res = run(remap_preview_api(prev_req))
+    prev_data = json.loads(prev_res.body.decode("utf-8"))
+    assert prev_data["success"] is True
+    assert prev_data["preview"]["target_domain"] == "migrated.local"
+
+    # 4. Remap network with target_domain
+    remap_req = MockRequest({
+        "source_vlan": 10,
+        "new_vlan_id": 70,
+        "new_gateway_cidr": "192.168.70.1/24",
+        "new_name": "Migrated-LAN",
+        "target_domain": "migrated.local",
+    })
+    remap_res = run(remap_network_api(remap_req))
+    remap_data = json.loads(remap_res.body.decode("utf-8"))
+    assert remap_data["success"] is True
+    migrated_net = next((n for n in state.unifi_cfg.networks if n.vlan_id == 70), None)
+    assert migrated_net is not None
+    assert migrated_net.domain_name == "migrated.local"
+
+    # 5. Merge network into existing UCG network with target_domain
+    merge_req = MockRequest({
+        "source_vlan": 70,
+        "new_vlan_id": 50,
+        "new_gateway_cidr": "192.168.50.1/24",
+        "merge_target_vlan_id": 50,
+        "target_domain": "merged.domain.lan",
+    })
+    merge_res = run(remap_network_api(merge_req))
+    merge_data = json.loads(merge_res.body.decode("utf-8"))
+    assert merge_data["success"] is True
+    merged_net = next((n for n in state.unifi_cfg.networks if n.vlan_id == 50), None)
+    assert merged_net is not None
+    assert merged_net.domain_name == "merged.domain.lan"
+
+    # 6. Check MultiSourceMerger matched_ucg_vlan
+    from src.models import OPNsenseConfig, OPNsenseInterface
+    opn_cfg = OPNsenseConfig(
+        system_domain="company.local",
+        interfaces=[
+            OPNsenseInterface(id="opt1", descr="CAMERAS", ipaddr="192.168.30.1", subnet="24", vlan_tag=30, physical_if="igb0")
+        ]
+    )
+    ucg_state = UniFiSourceState(
+        source_type="ucg_max",
+        networks=[{"name": "CAMERAS", "vlan": 30, "ip_subnet": "10.0.30.1/24"}]
+    )
+    target_cfg = UniFiTargetConfig(
+        networks=[UniFiNetwork(name="CAMERAS", vlan_id=30, gateway_cidr="192.168.30.1/24")]
+    )
+    merger = MultiSourceMerger(opn_cfg, target_cfg, ucg_state, None)
+    report = merger.reconcile()
+    net_item = next((i for i in report.items if i.category == "network" and i.item_id == "network:30"), None)
+    assert net_item is not None
+    assert net_item.matched_ucg_vlan == 30
+
+    print("SUCCESS: test_network_merge_and_domain_part_features passed cleanly!")
+
+
 if __name__ == "__main__":
     test_core_flow()
     test_upload_export_and_unify_apis()
@@ -1052,4 +1177,6 @@ if __name__ == "__main__":
     test_migration_exclusions_api()
     test_edit_item_and_bulk_resolve_api()
     test_modem_management_manual_configuration_api()
+    test_network_merge_and_domain_part_features()
+
 

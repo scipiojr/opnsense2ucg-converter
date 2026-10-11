@@ -155,6 +155,7 @@ class UniFiMapper:
                     dhcp_start=dhcp_start,
                     dhcp_stop=dhcp_stop,
                     dns_servers=dns_servers,
+                    domain_name=getattr(self.cfg, "system_domain", "") or "local",
                     is_management=(vlan_id == 1),
                 )
             )
@@ -426,8 +427,28 @@ class UniFiMapper:
 
         # ---------------------------------------------------------------------
         # UniFi Step 3: Map user filter rules from OPNsense
+        # Preserves evaluation order: Floating rules first (OPNsense behavior),
+        # followed by interface rules in exact sequence order.
         # ---------------------------------------------------------------------
-        for opn_rule in self.cfg.filter_rules:
+        # Precompute interface subnet CIDRs for resolving interface references (e.g. 'lan', 'opt1')
+        iface_subnets = {}
+        for iface in self.cfg.interfaces:
+            if iface.ipaddr and iface.subnet:
+                try:
+                    net = ipaddress.ip_network(f"{iface.ipaddr}/{iface.subnet}", strict=False)
+                    iface_subnets[iface.id.lower()] = str(net)
+                except ValueError:
+                    iface_subnets[iface.id.lower()] = f"{iface.ipaddr}/{iface.subnet}"
+            elif iface.ipaddr:
+                iface_subnets[iface.id.lower()] = iface.ipaddr
+
+        # Stable sort: Floating rules first, preserving relative original XML sequence
+        ordered_opn_rules = sorted(
+            self.cfg.filter_rules,
+            key=lambda r: (0 if r.is_floating else 1)
+        )
+
+        for opn_rule in ordered_opn_rules:
             if not opn_rule.enabled:
                 continue
 
@@ -452,16 +473,39 @@ class UniFiMapper:
             else:
                 ruleset = "LAN_IN"
 
-            action = "accept" if opn_rule.action == "pass" else "drop"
+            rule_inv = getattr(opn_rule, "rule_inverted", False)
+            raw_action = "accept" if opn_rule.action == "pass" else "drop"
+            # If rule logic is inverted, flip action
+            action = ("drop" if raw_action == "accept" else "accept") if rule_inv else raw_action
             proto = self._normalize_proto(opn_rule.protocol)
 
-            # Match groups or addresses
+            # Match groups or addresses / resolve interface subnets
             src_groups = [opn_rule.src] if opn_rule.src in group_names and group_names[opn_rule.src] == "address-group" else []
             dst_groups = [opn_rule.dst] if opn_rule.dst in group_names and group_names[opn_rule.dst] == "address-group" else []
 
-            src_addr = opn_rule.src if not src_groups and opn_rule.src != "any" else None
-            dst_addr = opn_rule.dst if not dst_groups and opn_rule.dst != "any" else None
+            if not src_groups and opn_rule.src != "any":
+                src_addr = iface_subnets.get(opn_rule.src.lower(), opn_rule.src)
+            else:
+                src_addr = None
+
+            if not dst_groups and opn_rule.dst != "any":
+                dst_addr = iface_subnets.get(opn_rule.dst.lower(), opn_rule.dst)
+            else:
+                dst_addr = None
+
             dst_port = opn_rule.dst_port if opn_rule.dst_port != "any" else None
+
+            src_inv = getattr(opn_rule, "src_inverted", False)
+            dst_inv = getattr(opn_rule, "dst_inverted", False)
+
+            negation_tags = []
+            if src_inv:
+                negation_tags.append("!Quelle")
+            if dst_inv:
+                negation_tags.append("!Ziel")
+            if rule_inv:
+                negation_tags.append("!Regel-Aktion")
+            neg_note = f" [{', '.join(negation_tags)}]" if negation_tags else ""
 
             prefix = "[Floating] " if opn_rule.is_floating else ""
             rule_name = f"{prefix}{opn_rule.descr}" if opn_rule.descr else f"{prefix}Migrated-{opn_rule.interface}-{opn_rule.id}"
@@ -482,7 +526,10 @@ class UniFiMapper:
                     dst_port=dst_port,
                     logging=opn_rule.log,
                     origin="OPNsense Floating Rule" if opn_rule.is_floating else "OPNsense Filter Rule",
-                    description=f"OPNsense interface: {opn_rule.interface}{floating_note}, Dir: {opn_rule.direction}. {opn_rule.descr}",
+                    description=f"OPNsense interface: {opn_rule.interface}{floating_note}, Dir: {opn_rule.direction}. {opn_rule.descr}{neg_note}",
+                    src_inverted=src_inv,
+                    dst_inverted=dst_inv,
+                    rule_inverted=rule_inv,
                 )
             )
             rule_idx += 1

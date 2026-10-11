@@ -600,6 +600,18 @@ class UniFiGatewayClient:
         if rule.dst_port:
             payload["dst_port"] = rule.dst_port
 
+        if getattr(rule, "src_inverted", False):
+            payload["src_firewallgroup_match_opposite"] = True
+            payload["src_address_match_opposite"] = True
+            payload["src_network_match_opposite"] = True
+            payload["src_mac_match_opposite"] = True
+
+        if getattr(rule, "dst_inverted", False):
+            payload["dst_firewallgroup_match_opposite"] = True
+            payload["dst_address_match_opposite"] = True
+            payload["dst_network_match_opposite"] = True
+            payload["dst_port_match_opposite"] = True
+
         res = self.session.post(url, json=payload, timeout=10)
         if res.status_code in [200, 201]:
             data = res.json().get("data", [{}])[0]

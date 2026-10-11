@@ -145,13 +145,15 @@ class MultiSourceMerger:
                         status="aligned",
                         action="remapped_and_merged",
                         explanation=f"Netzwerk manuell von VLAN {vlan} auf UCG-Netzwerk VLAN {mapped_target_vlan} ({match.get('name', 'UCG-Net')}) gemappt und zusammengeführt.",
+                        matched_ucg_vlan=mapped_target_vlan,
                     )
                 )
                 summary["networks_aligned"] += 1
                 covered_ucg_vlans.add(mapped_target_vlan)
                 covered_ucg_vlans.add(vlan)
             elif match:
-                covered_ucg_vlans.add(int(match.get("vlan", vlan)))
+                matched_ucg_vlan = int(match.get("vlan", vlan) or match.get("vlan_id", vlan))
+                covered_ucg_vlans.add(matched_ucg_vlan)
                 ucg_ip = match.get("ip_subnet", "") or match.get("gateway_ip", "")
                 # Compare subnets
                 if not ucg_ip or ucg_ip.startswith(target_cidr[:8]):  # Subnet prefix match
@@ -164,6 +166,7 @@ class MultiSourceMerger:
                             status="aligned",
                             action="update_existing_on_ucg",
                             explanation=f"Netzwerk existiert bereits auf UCG-Max ({match.get('name')}). Wird aktualisiert statt dupliziert.",
+                            matched_ucg_vlan=matched_ucg_vlan,
                         )
                     )
                     summary["networks_aligned"] += 1
@@ -178,6 +181,7 @@ class MultiSourceMerger:
                                 status="aligned",
                                 action="overwrite_ucg",
                                 explanation=f"Kollision gelöst (OPNsense hat Vorrang): OPNsense-Subnetz ({target_net.gateway_cidr}) überschreibt UCG ({ucg_ip}).",
+                                matched_ucg_vlan=matched_ucg_vlan,
                             )
                         )
                         summary["networks_aligned"] += 1
@@ -192,6 +196,7 @@ class MultiSourceMerger:
                                 status="preserve_ucg",
                                 action="preserve_ucg",
                                 explanation=f"Kollision gelöst (UCG-Max hat Vorrang): Bestehendes UCG-Subnetz ({ucg_ip}) bleibt geschützt erhalten.",
+                                matched_ucg_vlan=matched_ucg_vlan,
                             )
                         )
                         summary["networks_preserved"] += 1
@@ -212,6 +217,7 @@ class MultiSourceMerger:
                                 status="aligned",
                                 action="preserve_uos",
                                 explanation=f"Kollision gelöst (UniFi OS Server hat Vorrang): Server-Konfiguration ({uos_ip or target_net.gateway_cidr}) hat Vorrang.",
+                                matched_ucg_vlan=matched_ucg_vlan,
                             )
                         )
                         summary["networks_aligned"] += 1
@@ -225,6 +231,7 @@ class MultiSourceMerger:
                                 status="conflict",
                                 action="manual_decision_needed",
                                 explanation=f"Subnetz-Abweichung: OPNsense nutzt {target_net.gateway_cidr}, auf dem UCG-Max ist jedoch {ucg_ip} konfiguriert.",
+                                matched_ucg_vlan=matched_ucg_vlan,
                             )
                         )
                         summary["networks_conflicts"] += 1

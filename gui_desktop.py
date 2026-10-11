@@ -381,7 +381,15 @@ class DesktopMigratorApp(tk.Tk):
         for r in self.unifi_cfg.firewall_rules:
             stat = getattr(r, "status", "accepted")
             stat_str = "VERWORFEN" if stat == "discarded" else ("ANGEPASST" if stat == "modified" else "ÜBERNOMMEN")
-            self.rules_tree.insert("", tk.END, values=(stat_str, r.rule_index, r.ruleset, r.action.upper(), f"{r.name} ({r.description or ''})"))
+            neg_flags = []
+            if getattr(r, "src_inverted", False):
+                neg_flags.append("!Quelle")
+            if getattr(r, "dst_inverted", False):
+                neg_flags.append("!Ziel")
+            if getattr(r, "rule_inverted", False):
+                neg_flags.append("!Regel")
+            neg_str = f" [{', '.join(neg_flags)}]" if neg_flags else ""
+            self.rules_tree.insert("", tk.END, values=(stat_str, r.rule_index, r.ruleset, r.action.upper(), f"{r.name}{neg_str} ({r.description or ''})"))
 
         data = {
             "networks": [{"name": n.name, "vlan": n.vlan_id, "cidr": n.gateway_cidr} for n in self.unifi_cfg.networks],

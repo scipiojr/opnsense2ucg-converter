@@ -125,6 +125,7 @@ class OPNsenseFilterRule:
     is_floating: bool = False
     src_inverted: bool = False
     dst_inverted: bool = False
+    rule_inverted: bool = False
 
 
 @dataclass
@@ -258,6 +259,7 @@ class OPNsenseConfig:
     traffic_shaper: Optional[OPNsenseTrafficShaper] = None
     omitted_items: List[OmittedItem] = field(default_factory=list)
     modem_management: Optional[OPNsenseModemManagement] = None
+    system_domain: str = ""
     raw_xml: str = ""
 
 
@@ -349,6 +351,9 @@ class UniFiFirewallRule:
     status: str = "accepted"         # "accepted", "discarded", "modified"
     origin: str = "OPNsense"         # "OPNsense", "Floating Rule", "Default-Deny Protection", etc.
     llm_notes: str = ""
+    src_inverted: bool = False       # Match opposite / negated source
+    dst_inverted: bool = False       # Match opposite / negated destination
+    rule_inverted: bool = False      # Inverted rule logic / action
 
 
 @dataclass
@@ -432,6 +437,7 @@ class ReconciliationItem:
     explanation: str = ""
     item_id: str = ""               # Stable identifier, e.g. "network:20", "wlan:Home", "client:aa:bb:..."
     exclusion: Optional[Dict[str, Any]] = None  # Exclusion entry if the item is not migrated
+    matched_ucg_vlan: Optional[int] = None
 
 
 @dataclass

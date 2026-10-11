@@ -915,12 +915,12 @@
             <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/60">
               <tr>
                 <th class="py-2.5 px-3 w-12 text-center">Status</th>
-                <th class="py-2.5 px-3 w-16">Index</th>
+                <th class="py-2.5 px-3 w-24">Reihenfolge</th>
                 <th class="py-2.5 px-3 min-w-[200px]">Regel &amp; Herkunft</th>
                 <th class="py-2.5 px-3 w-24">Ruleset</th>
                 <th class="py-2.5 px-3 w-20">Aktion</th>
                 <th class="py-2.5 px-3 w-16">Proto</th>
-                <th class="py-2.5 px-3 min-w-[180px]">Quelle &rarr; Ziel (Port)</th>
+                <th class="py-2.5 px-3 min-w-[220px]">Quelle &rarr; Ziel (Port)</th>
                 <th class="py-2.5 px-3 w-40 text-right">Aktionen &amp; KI</th>
               </tr>
             </thead>
@@ -1346,7 +1346,7 @@
             </select>
           </div>
           <div>
-            <label class="block text-slate-400 mb-1">Domain Name</label>
+            <label class="block text-slate-400 mb-1">Domain Name (Domain-Part)</label>
             <input type="text" id="modal-net-domain" placeholder="local" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500 font-mono">
           </div>
         </div>
@@ -1426,17 +1426,35 @@
                 <input type="text" id="remap-target-cidr" placeholder="z.B. 192.168.90.1/24" onchange="updateRemapPreview()" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono font-bold">
               </div>
             </div>
-            <div>
-              <label class="block text-slate-400 mb-1">Ziel-Netzwerkname (optional)</label>
-              <input type="text" id="remap-target-name" placeholder="z.B. LAN (Neues Subnetz)" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-slate-400 mb-1">Ziel-Netzwerkname (optional)</label>
+                <input type="text" id="remap-target-name" placeholder="z.B. LAN (Neues Subnetz)" onchange="updateRemapPreview()" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">Domain Name (Domain-Part)</label>
+                <input type="text" id="remap-target-domain" placeholder="local" onchange="updateRemapPreview()" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono">
+              </div>
             </div>
           </div>
 
           <!-- Fields for UCG merge -->
-          <div id="remap-ucg-fields" class="space-y-2 pt-2 hidden">
-            <label class="block text-slate-400 mb-1">UCG-Netzwerk zum Zusammenführen auswählen</label>
-            <select id="remap-ucg-select" onchange="onSelectUcgTargetNet()" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono">
-            </select>
+          <div id="remap-ucg-fields" class="space-y-3 pt-2 hidden">
+            <div>
+              <label class="block text-slate-400 mb-1">UCG-Netzwerk zum Zusammenführen auswählen</label>
+              <select id="remap-ucg-select" onchange="onSelectUcgTargetNet()" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono">
+              </select>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-slate-400 mb-1">Ziel-Netzwerkname</label>
+                <input type="text" id="remap-ucg-name-display" readonly class="w-full bg-slate-900/60 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-400 text-xs">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">Domain Name (Domain-Part)</label>
+                <input type="text" id="remap-ucg-domain" placeholder="local" onchange="updateRemapPreview()" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono">
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1579,9 +1597,15 @@
 
       <!-- EDITABLE RULE FIELDS -->
       <div class="space-y-3 text-xs pt-1">
-        <div>
-          <label class="block text-slate-400 mb-1">Regelname</label>
-          <input type="text" id="modal-edit-name" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-medium">
+        <div class="grid grid-cols-3 gap-3">
+          <div class="col-span-2">
+            <label class="block text-slate-400 mb-1">Regelname</label>
+            <input type="text" id="modal-edit-name" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-medium">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Reihenfolge (Index)</label>
+            <input type="number" id="modal-edit-index-input" min="2000" max="9999" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-cyan-300 font-mono font-bold focus:outline-none focus:border-cyan-500" title="Niedrigerer Index = höhere Auswertungspriorität">
+          </div>
         </div>
 
         <div class="grid grid-cols-3 gap-3">
@@ -1623,6 +1647,36 @@
           <div>
             <label class="block text-slate-400 mb-1">Ziel-Adresse / Subnetz / Gruppe</label>
             <input type="text" id="modal-edit-dst" placeholder="z.B. 192.168.10.20 oder any" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+          </div>
+        </div>
+
+        <!-- Negierung / Invertierung Panel -->
+        <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3 space-y-2">
+          <div class="text-[11px] font-semibold text-rose-300 flex items-center gap-1.5">
+            <i class="fa-solid fa-arrows-rotate text-rose-400"></i> Negierung &amp; Invertierung (NOT / Match Opposite)
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <label class="flex items-start gap-2 p-2 rounded-lg bg-slate-900 border border-slate-800/80 hover:border-rose-800/60 cursor-pointer">
+              <input type="checkbox" id="modal-edit-src-inv" class="rounded bg-slate-950 border-slate-700 text-rose-500 focus:ring-0 mt-0.5">
+              <div>
+                <div class="text-xs font-semibold text-slate-200">Quelle negieren (!NOT)</div>
+                <div class="text-[10px] text-slate-400 leading-tight">Match Opposite: Gilt für alle Absender AUßER dieser Quelle</div>
+              </div>
+            </label>
+            <label class="flex items-start gap-2 p-2 rounded-lg bg-slate-900 border border-slate-800/80 hover:border-rose-800/60 cursor-pointer">
+              <input type="checkbox" id="modal-edit-dst-inv" class="rounded bg-slate-950 border-slate-700 text-rose-500 focus:ring-0 mt-0.5">
+              <div>
+                <div class="text-xs font-semibold text-slate-200">Ziel negieren (!NOT)</div>
+                <div class="text-[10px] text-slate-400 leading-tight">Match Opposite: Gilt für alle Ziele AUßER diesem Ziel (z.B. Internet statt RFC1918)</div>
+              </div>
+            </label>
+            <label class="flex items-start gap-2 p-2 rounded-lg bg-slate-900 border border-slate-800/80 hover:border-amber-800/60 cursor-pointer">
+              <input type="checkbox" id="modal-edit-rule-inv" class="rounded bg-slate-950 border-slate-700 text-amber-500 focus:ring-0 mt-0.5">
+              <div>
+                <div class="text-xs font-semibold text-slate-200">Regel umkehren</div>
+                <div class="text-[10px] text-slate-400 leading-tight">Kehrt die Aktion um (ACCEPT &harr; DROP)</div>
+              </div>
+            </label>
           </div>
         </div>
 
@@ -2666,20 +2720,38 @@
           ? `<span class="px-1.5 py-0.5 rounded text-[9px] bg-slate-800 text-slate-400 font-mono">${r.origin}</span>`
           : '';
 
+        const ruleInvBadge = r.rule_inverted
+          ? '<span class="px-1.5 py-0.5 rounded text-[9px] bg-amber-950 text-amber-300 border border-amber-800 font-bold" title="Regel-Logik ist negiert (Aktion umgekehrt)"><i class="fa-solid fa-arrows-rotate"></i> NEGIERT</span>'
+          : '';
+
         const srcStr = (r.src_groups && r.src_groups.length > 0) ? r.src_groups.join(',') : (r.src_addr || 'any');
         const dstStr = (r.dst_groups && r.dst_groups.length > 0) ? r.dst_groups.join(',') : (r.dst_addr || 'any');
         const portStr = r.dst_port ? `:${r.dst_port}` : '';
+
+        const srcPrefix = r.src_inverted ? '<span class="px-1 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800 text-[9px] font-bold mr-1" title="Quelle negiert (!NOT / Match Opposite)">!NOT</span>' : '';
+        const dstPrefix = r.dst_inverted ? '<span class="px-1 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800 text-[9px] font-bold mr-1" title="Ziel negiert (!NOT / Match Opposite)">!NOT</span>' : '';
+
+        const moveBtns = `
+          <div class="flex items-center gap-1.5">
+            <span class="font-mono text-slate-300 font-semibold">${r.rule_index}</span>
+            <div class="inline-flex flex-col gap-0.5">
+              <button onclick="moveRule(${r.rule_index}, 'up')" title="Regel nach oben schieben (höhere Priorität)" class="px-1 py-0.5 text-[8px] bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded border border-slate-700 leading-none cursor-pointer">▲</button>
+              <button onclick="moveRule(${r.rule_index}, 'down')" title="Regel nach unten schieben (niedrigere Priorität)" class="px-1 py-0.5 text-[8px] bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded border border-slate-700 leading-none cursor-pointer">▼</button>
+            </div>
+          </div>
+        `;
 
         return `
           <tr class="${rowClass} transition">
             <td class="py-2.5 px-3 text-center">
               <input type="checkbox" ${!isDiscarded ? 'checked' : ''} onchange="toggleRuleStatus(${r.rule_index})" title="${!isDiscarded ? 'Klicken zum Verwerfen' : 'Klicken zum Übernehmen'}" class="rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer">
             </td>
-            <td class="py-2.5 px-3 font-mono text-slate-400 font-semibold">${r.rule_index}</td>
+            <td class="py-2.5 px-3 whitespace-nowrap">${moveBtns}</td>
             <td class="py-2.5 px-3">
               <div class="font-medium ${isDiscarded ? 'line-through text-slate-400' : 'text-slate-200'} flex items-center gap-1.5 flex-wrap">
                 <span>${r.name}</span>
                 ${originBadge}
+                ${ruleInvBadge}
                 ${statusBadge}
                 ${migBadge(r.migration)}
               </div>
@@ -2690,7 +2762,7 @@
             <td class="py-2.5 px-3">${actionBadge}</td>
             <td class="py-2.5 px-3 font-mono text-slate-400 uppercase text-[11px]">${r.protocol}</td>
             <td class="py-2.5 px-3 font-mono text-slate-300 text-[11px]">
-              <span class="text-slate-400">${srcStr}</span> &rarr; <span class="text-amber-300">${dstStr}${portStr}</span>
+              ${srcPrefix}<span class="text-slate-400">${srcStr}</span> &rarr; ${dstPrefix}<span class="text-amber-300">${dstStr}${portStr}</span>
             </td>
             <td class="py-2.5 px-3 text-right space-x-1.5 whitespace-nowrap">
               <button onclick="openEditRuleModal(${r.rule_index})" title="Regel anpassen &amp; KI nutzen" class="px-2 py-1 rounded bg-slate-800 hover:bg-cyan-900/40 text-slate-300 hover:text-cyan-300 border border-slate-700 hover:border-cyan-700 transition">
@@ -2765,6 +2837,9 @@
       document.getElementById('modal-edit-index').innerText = r.rule_index;
       document.getElementById('llm-modal-rule-name').innerText = r.name || 'Regel ' + r.rule_index;
       document.getElementById('modal-edit-name').value = r.name || '';
+      if (document.getElementById('modal-edit-index-input')) {
+        document.getElementById('modal-edit-index-input').value = r.rule_index;
+      }
       document.getElementById('modal-edit-ruleset').value = r.ruleset || 'LAN_IN';
       document.getElementById('modal-edit-action').value = r.action || 'accept';
       document.getElementById('modal-edit-proto').value = r.protocol || 'all';
@@ -2773,6 +2848,16 @@
       document.getElementById('modal-edit-port').value = r.dst_port || '';
       document.getElementById('modal-edit-log').checked = !!r.logging;
       document.getElementById('modal-edit-descr').value = r.description || '';
+
+      if (document.getElementById('modal-edit-src-inv')) {
+        document.getElementById('modal-edit-src-inv').checked = !!r.src_inverted;
+      }
+      if (document.getElementById('modal-edit-dst-inv')) {
+        document.getElementById('modal-edit-dst-inv').checked = !!r.dst_inverted;
+      }
+      if (document.getElementById('modal-edit-rule-inv')) {
+        document.getElementById('modal-edit-rule-inv').checked = !!r.rule_inverted;
+      }
 
       // Reset AI section
       document.getElementById('llm-rule-instruction').value = '';
@@ -2850,7 +2935,7 @@
           const newR = data.updated_rule;
 
           let diffRows = [];
-          ['name', 'ruleset', 'action', 'protocol', 'src_addr', 'dst_addr', 'dst_port', 'logging'].forEach(field => {
+          ['name', 'ruleset', 'action', 'protocol', 'src_addr', 'dst_addr', 'dst_port', 'logging', 'src_inverted', 'dst_inverted', 'rule_inverted'].forEach(field => {
             const oldVal = String(oldR[field] !== undefined ? oldR[field] : '');
             const newVal = String(newR[field] !== undefined ? newR[field] : '');
             const isChanged = oldVal !== newVal;
@@ -2890,6 +2975,9 @@
       if (nr.dst_addr !== undefined) document.getElementById('modal-edit-dst').value = nr.dst_addr;
       if (nr.dst_port !== undefined) document.getElementById('modal-edit-port').value = nr.dst_port;
       if (nr.logging !== undefined) document.getElementById('modal-edit-log').checked = !!nr.logging;
+      if (nr.src_inverted !== undefined && document.getElementById('modal-edit-src-inv')) document.getElementById('modal-edit-src-inv').checked = !!nr.src_inverted;
+      if (nr.dst_inverted !== undefined && document.getElementById('modal-edit-dst-inv')) document.getElementById('modal-edit-dst-inv').checked = !!nr.dst_inverted;
+      if (nr.rule_inverted !== undefined && document.getElementById('modal-edit-rule-inv')) document.getElementById('modal-edit-rule-inv').checked = !!nr.rule_inverted;
 
       try {
         const res = await fetch('/api/rules/apply-llm-suggestion', {
@@ -2926,8 +3014,11 @@
 
     async function saveEditRuleModal() {
       const index = parseInt(document.getElementById('modal-edit-index').innerText);
+      const newIdxInput = document.getElementById('modal-edit-index-input');
+      const newIdxVal = newIdxInput ? parseInt(newIdxInput.value) : index;
       const payload = {
         rule_index: index,
+        new_index: isNaN(newIdxVal) ? index : newIdxVal,
         name: document.getElementById('modal-edit-name').value,
         ruleset: document.getElementById('modal-edit-ruleset').value,
         action: document.getElementById('modal-edit-action').value,
@@ -2936,7 +3027,10 @@
         dst_addr: document.getElementById('modal-edit-dst').value,
         dst_port: document.getElementById('modal-edit-port').value,
         logging: document.getElementById('modal-edit-log').checked,
-        description: document.getElementById('modal-edit-descr').value
+        description: document.getElementById('modal-edit-descr').value,
+        src_inverted: document.getElementById('modal-edit-src-inv')?.checked || false,
+        dst_inverted: document.getElementById('modal-edit-dst-inv')?.checked || false,
+        rule_inverted: document.getElementById('modal-edit-rule-inv')?.checked || false
       };
 
       try {
@@ -2953,6 +3047,26 @@
           showToast('Regel erfolgreich angepasst!');
         } else {
           showToast(data.error || 'Fehler beim Speichern', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    async function moveRule(ruleIndex, direction) {
+      try {
+        const res = await fetch('/api/rules/reorder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rule_index: ruleIndex, direction: direction })
+        });
+        const data = await res.json();
+        if (data.success) {
+          currentRules = data.rules;
+          renderFilteredRules();
+          showToast(`Regel ${direction === 'up' ? 'nach oben' : 'nach unten'} verschoben.`);
+        } else {
+          showToast(data.error || 'Fehler beim Verschieben', true);
         }
       } catch (err) {
         showToast('Fehler: ' + err.message, true);
@@ -3741,7 +3855,134 @@
     // -------------------------------------------------------------------------
     // VLAN Remap & Migration Helper (Tabs inside Unified Modal)
     // -------------------------------------------------------------------------
-    function initRemapDropdowns(defaultSourceVlan = null) {
+    function findMatchingUcgNetwork(srcNet) {
+      if (!srcNet || !currentUcgNetworks || currentUcgNetworks.length === 0) return null;
+
+      // 1. Check if lastReconciliation contains a pre-identified match for this network
+      if (lastReconciliation && lastReconciliation.items) {
+        const item = lastReconciliation.items.find(i => 
+          i.category === 'network' && (
+            i.item_id === `network:${srcNet.vlan_id}` ||
+            (i.key && i.key.includes(`VLAN ${srcNet.vlan_id}`))
+          )
+        );
+        if (item) {
+          if (item.matched_ucg_vlan) {
+            const u = currentUcgNetworks.find(n => n.vlan_id === item.matched_ucg_vlan);
+            if (u) return u;
+          }
+          if (item.ucg_val) {
+            const m = item.ucg_val.match(/VLAN\s+(\d+)/i);
+            if (m) {
+              const u = currentUcgNetworks.find(n => n.vlan_id === parseInt(m[1]));
+              if (u) return u;
+            }
+          }
+        }
+      }
+
+      // 2. Exact VLAN ID match
+      const vlanMatch = currentUcgNetworks.find(n => n.vlan_id === srcNet.vlan_id);
+      if (vlanMatch) return vlanMatch;
+
+      // 3. Subnet match (same subnet IP prefix)
+      if (srcNet.gateway_cidr && srcNet.gateway_cidr.includes('/')) {
+        const srcIp = srcNet.gateway_cidr.split('/')[0].trim();
+        const srcParts = srcIp.split('.');
+        if (srcParts.length === 4) {
+          const srcPrefix = `${srcParts[0]}.${srcParts[1]}.${srcParts[2]}`;
+          const subnetMatch = currentUcgNetworks.find(n => {
+            if (!n.gateway_cidr) return false;
+            const ucgIp = n.gateway_cidr.split('/')[0].trim();
+            return ucgIp.startsWith(srcPrefix + '.');
+          });
+          if (subnetMatch) return subnetMatch;
+        }
+      }
+
+      // 4. Exact Name match (case-insensitive)
+      if (srcNet.name) {
+        const sName = srcNet.name.trim().toLowerCase();
+        const nameMatch = currentUcgNetworks.find(n => n.name && n.name.trim().toLowerCase() === sName);
+        if (nameMatch) return nameMatch;
+      }
+
+      // 5. Management / Default network match (Strategy A / UniFi default VLAN 1)
+      const isMgmt = isNetworkManagement(srcNet);
+      if (isMgmt) {
+        const ucgDefault = currentUcgNetworks.find(n => n.vlan_id === 1 || (n.name && n.name.toLowerCase() === 'default'));
+        if (ucgDefault) return ucgDefault;
+      }
+
+      // 6. Substring Name match
+      if (srcNet.name && srcNet.name.length >= 3) {
+        const sName = srcNet.name.trim().toLowerCase();
+        const subMatch = currentUcgNetworks.find(n => {
+          if (!n.name) return false;
+          const uName = n.name.trim().toLowerCase();
+          return uName.includes(sName) || sName.includes(uName);
+        });
+        if (subMatch) return subMatch;
+      }
+
+      return null;
+    }
+
+    function syncRemapFieldsForSource(explicitTargetVlan = null) {
+      const srcSel = document.getElementById('remap-src-select');
+      if (!srcSel) return;
+      const srcVlan = parseInt(srcSel.value);
+      const srcNet = currentNetworks.find(n => n.vlan_id === srcVlan);
+      if (!srcNet) return;
+
+      // Determine matching UCG network
+      let targetUcgNet = null;
+      if (explicitTargetVlan !== null && currentUcgNetworks) {
+        targetUcgNet = currentUcgNetworks.find(n => n.vlan_id === parseInt(explicitTargetVlan));
+      }
+      if (!targetUcgNet) {
+        targetUcgNet = findMatchingUcgNetwork(srcNet);
+      }
+
+      const ucgRadio = document.getElementById('remap-mode-ucg');
+      const customRadio = document.getElementById('remap-mode-custom');
+      const ucgSel = document.getElementById('remap-ucg-select');
+
+      const domainVal = (targetUcgNet && targetUcgNet.domain_name) || srcNet.domain_name || 'local';
+
+      if (targetUcgNet && currentUcgNetworks && currentUcgNetworks.length > 0) {
+        // Pre-select UCG Merge mode!
+        if (ucgRadio) ucgRadio.checked = true;
+        if (customRadio) customRadio.checked = false;
+        if (ucgSel) ucgSel.value = targetUcgNet.vlan_id;
+
+        document.getElementById('remap-target-vlan').value = targetUcgNet.vlan_id;
+        document.getElementById('remap-target-cidr').value = targetUcgNet.gateway_cidr;
+        document.getElementById('remap-target-name').value = targetUcgNet.name;
+        const ucgNameDisp = document.getElementById('remap-ucg-name-display');
+        if (ucgNameDisp) ucgNameDisp.value = targetUcgNet.name;
+        const ucgDomainInp = document.getElementById('remap-ucg-domain');
+        if (ucgDomainInp) ucgDomainInp.value = domainVal;
+        const tgtDomainInp = document.getElementById('remap-target-domain');
+        if (tgtDomainInp) tgtDomainInp.value = domainVal;
+      } else {
+        // Fallback to custom mode if no matching UCG network exists
+        if (ucgRadio) ucgRadio.checked = false;
+        if (customRadio) customRadio.checked = true;
+
+        document.getElementById('remap-target-vlan').value = srcNet.vlan_id;
+        document.getElementById('remap-target-cidr').value = srcNet.gateway_cidr;
+        document.getElementById('remap-target-name').value = srcNet.name;
+        const tgtDomainInp = document.getElementById('remap-target-domain');
+        if (tgtDomainInp) tgtDomainInp.value = srcNet.domain_name || 'local';
+        const ucgDomainInp = document.getElementById('remap-ucg-domain');
+        if (ucgDomainInp) ucgDomainInp.value = srcNet.domain_name || 'local';
+      }
+
+      toggleRemapMode();
+    }
+
+    function initRemapDropdowns(defaultSourceVlan = null, defaultTargetVlan = null) {
       const srcSel = document.getElementById('remap-src-select');
       if (!srcSel) return;
       if (!currentNetworks || currentNetworks.length === 0) {
@@ -3753,9 +3994,26 @@
         <option value="${n.vlan_id}">VLAN ${n.vlan_id}: ${n.name} (${n.gateway_cidr})</option>
       `).join('');
 
-      if (defaultSourceVlan !== null) {
-        const matchOpt = Array.from(srcSel.options).find(o => parseInt(o.value) === parseInt(defaultSourceVlan));
-        if (matchOpt) srcSel.value = defaultSourceVlan;
+      let selectedSrcVlan = defaultSourceVlan;
+      if (selectedSrcVlan === null) {
+        // If not specified, look for a network that has a match or conflict with UCG in reconciliation
+        if (lastReconciliation && lastReconciliation.items) {
+          const recNet = lastReconciliation.items.find(i => 
+            i.category === 'network' && (i.status === 'conflict' || i.matched_ucg_vlan || i.status === 'aligned')
+          );
+          if (recNet) {
+            const m = recNet.item_id ? recNet.item_id.match(/^network:(\d+)$/) : null;
+            if (m) selectedSrcVlan = parseInt(m[1]);
+          }
+        }
+        if (selectedSrcVlan === null && currentNetworks.length > 0) {
+          selectedSrcVlan = currentNetworks[0].vlan_id;
+        }
+      }
+
+      if (selectedSrcVlan !== null) {
+        const matchOpt = Array.from(srcSel.options).find(o => parseInt(o.value) === parseInt(selectedSrcVlan));
+        if (matchOpt) srcSel.value = selectedSrcVlan;
       }
 
       const ucgSel = document.getElementById('remap-ucg-select');
@@ -3769,17 +4027,15 @@
         }
       }
 
-      onRemapSourceChange();
+      syncRemapFieldsForSource(defaultTargetVlan);
     }
 
-    function openVlanRemapModal(defaultSourceVlan = null) {
+    function openVlanRemapModal(defaultSourceVlan = null, defaultTargetVlan = null) {
       if (!currentNetworks || currentNetworks.length === 0) {
         showToast('Keine Netzwerke zur Migration vorhanden. Bitte zuerst Konfiguration importieren.', true);
         return;
       }
-      initRemapDropdowns(defaultSourceVlan);
-      document.getElementById('remap-mode-custom').checked = true;
-      toggleRemapMode();
+      initRemapDropdowns(defaultSourceVlan, defaultTargetVlan);
       switchNetworkModalTab('migration');
       document.getElementById('edit-network-modal').classList.remove('hidden');
     }
@@ -3804,15 +4060,7 @@
     }
 
     function onRemapSourceChange() {
-      const srcVlan = parseInt(document.getElementById('remap-src-select').value);
-      const srcNet = currentNetworks.find(n => n.vlan_id === srcVlan);
-      if (srcNet) {
-        const nameInput = document.getElementById('remap-target-name');
-        if (nameInput && (!nameInput.value || nameInput.value.includes('LAN') || nameInput.value.includes('VLAN'))) {
-          nameInput.value = srcNet.name;
-        }
-      }
-      updateRemapPreview();
+      syncRemapFieldsForSource(null);
     }
 
     function onSelectUcgTargetNet() {
@@ -3824,6 +4072,12 @@
         document.getElementById('remap-target-vlan').value = targetNet.vlan_id;
         document.getElementById('remap-target-cidr').value = targetNet.gateway_cidr;
         document.getElementById('remap-target-name').value = targetNet.name;
+        const ucgNameDisp = document.getElementById('remap-ucg-name-display');
+        if (ucgNameDisp) ucgNameDisp.value = targetNet.name;
+        const ucgDomainInp = document.getElementById('remap-ucg-domain');
+        if (ucgDomainInp) ucgDomainInp.value = targetNet.domain_name || 'local';
+        const tgtDomainInp = document.getElementById('remap-target-domain');
+        if (tgtDomainInp) tgtDomainInp.value = targetNet.domain_name || 'local';
       }
       updateRemapPreview();
     }
@@ -3839,6 +4093,9 @@
         let newVlan = parseInt(document.getElementById('remap-target-vlan').value);
         let newCidr = (document.getElementById('remap-target-cidr').value || '').trim();
         let newName = (document.getElementById('remap-target-name').value || '').trim();
+        let newDomain = isCustom
+          ? (document.getElementById('remap-target-domain')?.value || '').trim()
+          : (document.getElementById('remap-ucg-domain')?.value || '').trim();
 
         if (!isCustom) {
           const ucgSel = document.getElementById('remap-ucg-select');
@@ -3848,6 +4105,7 @@
             newVlan = targetNet.vlan_id;
             newCidr = targetNet.gateway_cidr;
             newName = targetNet.name;
+            if (!newDomain) newDomain = targetNet.domain_name || 'local';
           }
         }
 
@@ -3875,6 +4133,7 @@
               new_vlan_id: newVlan,
               new_gateway_cidr: newCidr,
               new_name: newName,
+              target_domain: newDomain,
               remap_clients: remapClients,
               remap_wlans: remapWlans,
               remap_rules: remapRules
@@ -3888,6 +4147,10 @@
             let lines = [];
             lines.push(`<div class="font-bold text-indigo-300 pb-1 border-b border-slate-800">${p.summary}</div>`);
             lines.push(`<div class="text-slate-400">Betroffene Clients: <span class="font-bold text-teal-300">${p.clients_count}</span> | WLANs: <span class="font-bold text-purple-300">${p.wlans_count}</span> | Regeln: <span class="font-bold text-sky-300">${p.rules_count}</span></div>`);
+
+            if (p.target_domain) {
+              lines.push(`<div class="text-slate-400">Domain-Part: <span class="font-bold text-sky-300 font-mono">${escapeHtml(p.target_domain)}</span></div>`);
+            }
 
             if (p.client_diffs && p.client_diffs.length > 0) {
               lines.push('<div class="mt-1 text-slate-400 font-semibold text-[10px] uppercase">Client-IP Remapping:</div>');
@@ -3924,6 +4187,9 @@
       let newVlan = parseInt(document.getElementById('remap-target-vlan').value);
       let newCidr = (document.getElementById('remap-target-cidr').value || '').trim();
       let newName = (document.getElementById('remap-target-name').value || '').trim();
+      let newDomain = isCustom
+        ? (document.getElementById('remap-target-domain')?.value || '').trim()
+        : (document.getElementById('remap-ucg-domain')?.value || '').trim();
       let mergeTargetVlan = null;
 
       if (!isCustom) {
@@ -3934,6 +4200,7 @@
           newVlan = targetNet.vlan_id;
           newCidr = targetNet.gateway_cidr;
           newName = targetNet.name;
+          if (!newDomain) newDomain = targetNet.domain_name || 'local';
         }
       }
 
@@ -3963,6 +4230,7 @@
             new_vlan_id: newVlan,
             new_gateway_cidr: newCidr,
             new_name: newName,
+            target_domain: newDomain,
             merge_target_vlan_id: mergeTargetVlan,
             remap_clients: remapClients,
             remap_wlans: remapWlans,
@@ -4376,14 +4644,23 @@
 
       let fieldsHtml = '';
       if (category === 'network') {
+        const vlanMatch = itemId ? itemId.match(/^network:(\d+)$/) : null;
+        const curNet = vlanMatch ? currentNetworks.find(n => n.vlan_id === parseInt(vlanMatch[1])) : null;
+        const netDomain = curNet ? (curNet.domain_name || 'local') : 'local';
         fieldsHtml = `
           <div>
             <label class="block text-slate-400 mb-1">Netzwerkname</label>
             <input type="text" id="uni-field-name" value="${escapeHtml(optKey || '')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-semibold focus:border-cyan-500">
           </div>
-          <div>
-            <label class="block text-slate-400 mb-1">Gateway CIDR (Subnetz)</label>
-            <input type="text" id="uni-field-cidr" value="${escapeHtml(currentVal || '192.168.1.1/24')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 mb-1">Gateway CIDR (Subnetz)</label>
+              <input type="text" id="uni-field-cidr" value="${escapeHtml(currentVal || '192.168.1.1/24')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1">Domain Name (Domain-Part)</label>
+              <input type="text" id="uni-field-domain" value="${escapeHtml(netDomain)}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+            </div>
           </div>
           <div class="flex items-center gap-2 pt-1">
             <input type="checkbox" id="uni-field-dhcp" checked class="rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-0 w-4 h-4">
@@ -4518,9 +4795,11 @@
       if (category === 'network') {
         const n = document.getElementById('uni-field-name')?.value;
         const c = document.getElementById('uni-field-cidr')?.value;
+        const dom = document.getElementById('uni-field-domain')?.value;
         const dh = document.getElementById('uni-field-dhcp')?.checked;
         if (n) updates.name = n;
         if (c) updates.gateway_cidr = c;
+        if (dom !== undefined) updates.domain_name = dom.trim();
         updates.dhcp_enabled = dh;
       } else if (category === 'client') {
         const n = document.getElementById('uni-field-name')?.value;
@@ -4753,9 +5032,40 @@
                         item.category === 'system' ? 'fa-clock text-rose-400' :
                         item.category === 'services' ? 'fa-bullhorn text-indigo-400' : 'fa-tag text-slate-400';
 
+        let netIdx = -1;
+        let isNetMgmt = false;
+        let netMgmtBadge = '';
+        let vlanId = null;
+        let matchedUcgVlan = item.matched_ucg_vlan || null;
+        if (item.category === 'network') {
+          const vlanMatch = item.item_id ? item.item_id.match(/^network:(\d+)$/) : null;
+          vlanId = vlanMatch ? parseInt(vlanMatch[1]) : null;
+          if (vlanId !== null) {
+            netIdx = currentNetworks.findIndex(n => n.vlan_id === vlanId);
+          }
+          if (netIdx === -1 && item.key) {
+            const keyMatch = item.key.match(/VLAN\s+(\d+)/i);
+            if (keyMatch) {
+              vlanId = parseInt(keyMatch[1]);
+              netIdx = currentNetworks.findIndex(n => n.vlan_id === vlanId);
+            }
+          }
+          if (!matchedUcgVlan && item.ucg_val) {
+            const ucgVlanMatch = item.ucg_val.match(/VLAN\s+(\d+)/i);
+            if (ucgVlanMatch) matchedUcgVlan = parseInt(ucgVlanMatch[1]);
+          }
+          if (netIdx >= 0) {
+            const net = currentNetworks[netIdx];
+            isNetMgmt = isNetworkManagement(net);
+            netMgmtBadge = getManagementBadgeHtml(netIdx, isNetMgmt);
+          }
+        }
+
         let remapBtn = '';
         if (item.category === 'network' && item.status !== 'excluded') {
-          remapBtn = ` <button onclick="openVlanRemapModal()" class="ml-1 text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold underline inline-flex items-center gap-1"><i class="fa-solid fa-shuffle"></i> Zuordnen / Mergen</button>`;
+          const srcArg = vlanId !== null ? vlanId : 'null';
+          const tgtArg = matchedUcgVlan !== null ? matchedUcgVlan : 'null';
+          remapBtn = ` <button onclick="openVlanRemapModal(${srcArg}, ${tgtArg})" class="ml-1 text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold underline inline-flex items-center gap-1"><i class="fa-solid fa-shuffle"></i> Zuordnen / Mergen</button>`;
         }
 
         let actionBtns = '';
@@ -4767,31 +5077,6 @@
             : `<button data-id="${escapeHtml(item.item_id)}" onclick="openExcludeModal(this.dataset.id)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-rose-950 border border-slate-700 hover:border-rose-800 text-slate-300 hover:text-rose-300 text-[10px] font-semibold inline-flex items-center gap-1 transition"><i class="fa-solid fa-ban"></i> Nicht migrieren</button>`;
 
           actionBtns = `<div class="flex items-center gap-1 mt-1 flex-wrap">${editBtn}${exclBtn}</div>`;
-        }
-
-        const isExcl = item.status === 'excluded';
-
-        let netIdx = -1;
-        let isNetMgmt = false;
-        let netMgmtBadge = '';
-        if (item.category === 'network') {
-          const vlanMatch = item.item_id ? item.item_id.match(/^network:(\d+)$/) : null;
-          const vlanId = vlanMatch ? parseInt(vlanMatch[1]) : null;
-          if (vlanId !== null) {
-            netIdx = currentNetworks.findIndex(n => n.vlan_id === vlanId);
-          }
-          if (netIdx === -1 && item.key) {
-            const keyMatch = item.key.match(/VLAN\s+(\d+)/i);
-            if (keyMatch) {
-              const v = parseInt(keyMatch[1]);
-              netIdx = currentNetworks.findIndex(n => n.vlan_id === v);
-            }
-          }
-          if (netIdx >= 0) {
-            const net = currentNetworks[netIdx];
-            isNetMgmt = isNetworkManagement(net);
-            netMgmtBadge = getManagementBadgeHtml(netIdx, isNetMgmt);
-          }
         }
 
         const rowHighlight = isNetMgmt ? 'bg-amber-950/15 border-l-4 border-l-amber-500 hover:bg-amber-950/25' : '';

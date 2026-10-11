@@ -71,6 +71,7 @@ class VlanRemapper:
         source_cidr: Optional[str] = None,
         target_cidr: Optional[str] = None,
         target_name: Optional[str] = None,
+        target_domain: Optional[str] = None,
         remap_clients: bool = True,
         remap_wlans: bool = True,
         remap_rules: bool = True,
@@ -81,6 +82,7 @@ class VlanRemapper:
             "target_vlan": target_vlan,
             "source_cidr": source_cidr,
             "target_cidr": target_cidr,
+            "target_domain": target_domain,
             "clients_remapped": 0,
             "wlans_remapped": 0,
             "rules_remapped": 0,
@@ -135,6 +137,10 @@ class VlanRemapper:
                 final_net.gateway_cidr = target_cidr
             if target_name:
                 final_net.name = target_name
+            if target_domain:
+                final_net.domain_name = target_domain
+            elif getattr(source_net, "domain_name", None) and not getattr(final_net, "domain_name", None):
+                final_net.domain_name = source_net.domain_name
             if source_net.dhcp_enabled:
                 final_net.dhcp_enabled = True
                 final_net.dhcp_start = source_net.dhcp_start or final_net.dhcp_start
@@ -157,6 +163,8 @@ class VlanRemapper:
             final_net.gateway_cidr = actual_target_cidr
             if target_name:
                 final_net.name = target_name
+            if target_domain:
+                final_net.domain_name = target_domain
 
             # Update DHCP pool range if CIDR changed
             if actual_source_cidr != actual_target_cidr:

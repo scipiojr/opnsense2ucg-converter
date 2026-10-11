@@ -57,6 +57,7 @@ class OPNsenseParser:
 
         # 2b. Detect Modem Management (VDSL / DrayTek WebUI access)
         config.modem_management = self._detect_modem_management(config.interfaces, vlans_map)
+        config.system_domain = self._get_text(self.root, ".//system/domain") or ""
 
         # 3. Parse DHCP (ISC dhcpd & Kea)
         config.dhcp_ranges, config.static_leases = self._parse_dhcp()
@@ -645,7 +646,14 @@ class OPNsenseParser:
                     or "any"
                 )
                 src_port = self._get_text(src_node, "port") or "any"
-                src_inv = src_node.find("not") is not None
+                not_elem = src_node.find("not")
+                inv_elem = src_node.find("invert")
+                if not_elem is not None:
+                    src_inv = (not_elem.text or "").strip().lower() not in ("0", "no", "false")
+                elif inv_elem is not None:
+                    src_inv = (inv_elem.text or "").strip().lower() not in ("0", "no", "false")
+                elif src_node.get("invert") in ("1", "yes", "true") or src_node.get("not") in ("1", "yes", "true"):
+                    src_inv = True
 
             # Parse Destination
             dst_node = rule.find("destination")
@@ -659,7 +667,25 @@ class OPNsenseParser:
                     or "any"
                 )
                 dst_port = self._get_text(dst_node, "port") or "any"
-                dst_inv = dst_node.find("not") is not None
+                not_elem = dst_node.find("not")
+                inv_elem = dst_node.find("invert")
+                if not_elem is not None:
+                    dst_inv = (not_elem.text or "").strip().lower() not in ("0", "no", "false")
+                elif inv_elem is not None:
+                    dst_inv = (inv_elem.text or "").strip().lower() not in ("0", "no", "false")
+                elif dst_node.get("invert") in ("1", "yes", "true") or dst_node.get("not") in ("1", "yes", "true"):
+                    dst_inv = True
+
+            # Parse Rule-level negation
+            rule_inv = False
+            rule_not_elem = rule.find("not")
+            rule_inv_elem = rule.find("invert")
+            if rule_not_elem is not None:
+                rule_inv = (rule_not_elem.text or "").strip().lower() not in ("0", "no", "false")
+            elif rule_inv_elem is not None:
+                rule_inv = (rule_inv_elem.text or "").strip().lower() not in ("0", "no", "false")
+            elif rule.get("invert") in ("1", "yes", "true") or rule.get("not") in ("1", "yes", "true"):
+                rule_inv = True
 
             filter_rules.append(
                 OPNsenseFilterRule(
@@ -679,6 +705,7 @@ class OPNsenseParser:
                     is_floating=is_floating,
                     src_inverted=src_inv,
                     dst_inverted=dst_inv,
+                    rule_inverted=rule_inv,
                 )
             )
 

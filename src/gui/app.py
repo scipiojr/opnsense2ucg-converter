@@ -355,6 +355,7 @@ def _raw_unifi_config_dict(cfg: Optional[UniFiTargetConfig] = None) -> Dict[str,
                             "explanation": item.explanation,
                         "item_id": getattr(item, "item_id", ""),
                         "exclusion": getattr(item, "exclusion", None),
+                        "matched_ucg_vlan": getattr(item, "matched_ucg_vlan", None),
                         }
                         for item in rep.items
                     ],
@@ -425,6 +426,9 @@ def _raw_unifi_config_dict(cfg: Optional[UniFiTargetConfig] = None) -> Dict[str,
                 "origin": getattr(r, "origin", "OPNsense"),
                 "llm_notes": getattr(r, "llm_notes", ""),
                 "enabled": r.enabled,
+                "src_inverted": getattr(r, "src_inverted", False),
+                "dst_inverted": getattr(r, "dst_inverted", False),
+                "rule_inverted": getattr(r, "rule_inverted", False),
             }
             for r in cfg.firewall_rules
         ],
@@ -624,6 +628,7 @@ def _raw_unifi_config_dict(cfg: Optional[UniFiTargetConfig] = None) -> Dict[str,
                         "explanation": item.explanation,
                         "item_id": getattr(item, "item_id", ""),
                         "exclusion": getattr(item, "exclusion", None),
+                        "matched_ucg_vlan": getattr(item, "matched_ucg_vlan", None),
                     }
                     for item in rep.items
                 ],
@@ -1052,11 +1057,89 @@ async def update_rule_api(request: Request) -> JSONResponse:
                     r.logging = bool(body["logging"])
                 if "description" in body:
                     r.description = body["description"]
+                if "src_inverted" in body:
+                    r.src_inverted = bool(body["src_inverted"])
+                if "dst_inverted" in body:
+                    r.dst_inverted = bool(body["dst_inverted"])
+                if "rule_inverted" in body:
+                    r.rule_inverted = bool(body["rule_inverted"])
+                if "new_index" in body and body["new_index"] is not None:
+                    try:
+                        r.rule_index = int(body["new_index"])
+                    except (ValueError, TypeError):
+                        pass
                 r.status = "modified"
                 r.enabled = True
+                state.unifi_cfg.firewall_rules.sort(key=lambda x: x.rule_index)
                 return JSONResponse({"success": True, "rules": get_unifi_config_dict()["firewall_rules"]})
 
         return JSONResponse({"success": False, "error": f"Rule with index {rule_index} not found"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+async def reorder_rules_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "No UniFi config ready"}, status_code=400)
+        body = await request.json()
+        rule_index = body.get("rule_index")
+        direction = str(body.get("direction", "up")).lower()
+        new_order = body.get("new_order")
+
+        rules = state.unifi_cfg.firewall_rules
+
+        # Option A: Full new ordering array of rule indices
+        if new_order and isinstance(new_order, list):
+            rule_map = {r.rule_index: r for r in rules}
+            reordered = []
+            seen = set()
+            for idx in new_order:
+                if idx in rule_map and idx not in seen:
+                    reordered.append(rule_map[idx])
+                    seen.add(idx)
+            for r in rules:
+                if r.rule_index not in seen:
+                    reordered.append(r)
+            # Reassign indices sequentially starting at base index 2000
+            for i, r in enumerate(reordered):
+                r.rule_index = 2000 + i
+                r.status = "modified"
+            state.unifi_cfg.firewall_rules = reordered
+            return JSONResponse({"success": True, "rules": get_unifi_config_dict()["firewall_rules"]})
+
+        # Option B: Single rule moved 'up' or 'down' relative to its neighbor
+        if rule_index is not None:
+            idx = next((i for i, r in enumerate(rules) if r.rule_index == rule_index), None)
+            if idx is None:
+                return JSONResponse({"success": False, "error": f"Rule {rule_index} not found"}, status_code=404)
+
+            target_idx = None
+            if direction == "up" and idx > 0:
+                target_idx = idx - 1
+            elif direction == "down" and idx < len(rules) - 1:
+                target_idx = idx + 1
+
+            if target_idx is not None:
+                # Swap elements
+                rules[idx], rules[target_idx] = rules[target_idx], rules[idx]
+                # Swap their rule_index values so order is preserved
+                idx_a = rules[idx].rule_index
+                idx_b = rules[target_idx].rule_index
+                if idx_a == idx_b:
+                    # If duplicate indices, re-index list sequentially
+                    for i, r in enumerate(rules):
+                        r.rule_index = 2000 + i
+                else:
+                    rules[idx].rule_index, rules[target_idx].rule_index = idx_b, idx_a
+                rules[idx].status = "modified"
+                rules[target_idx].status = "modified"
+                rules.sort(key=lambda x: x.rule_index)
+                return JSONResponse({"success": True, "rules": get_unifi_config_dict()["firewall_rules"]})
+            else:
+                return JSONResponse({"success": True, "rules": get_unifi_config_dict()["firewall_rules"], "message": "Already at boundary"})
+
+        return JSONResponse({"success": False, "error": "Missing rule_index or new_order"}, status_code=400)
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
@@ -1150,6 +1233,12 @@ async def apply_llm_suggestion_api(request: Request) -> JSONResponse:
                     r.logging = bool(updated["logging"])
                 if "description" in updated:
                     r.description = updated["description"]
+                if "src_inverted" in updated:
+                    r.src_inverted = bool(updated["src_inverted"])
+                if "dst_inverted" in updated:
+                    r.dst_inverted = bool(updated["dst_inverted"])
+                if "rule_inverted" in updated:
+                    r.rule_inverted = bool(updated["rule_inverted"])
                 r.status = "modified"
                 r.enabled = True
                 if explanation:
@@ -1620,6 +1709,9 @@ async def remap_network_api(request: Request) -> JSONResponse:
         source_cidr = body.get("source_cidr")
         target_cidr = body.get("target_cidr", body.get("new_gateway_cidr"))
         target_name = body.get("target_name", body.get("new_name"))
+        target_domain = body.get("target_domain", body.get("new_domain_name"))
+        if target_domain is not None:
+            target_domain = str(target_domain).strip()
         merge_target_vlan_id = body.get("merge_target_vlan_id")
         if merge_target_vlan_id is not None and str(merge_target_vlan_id).strip() != "":
             target_vlan = int(merge_target_vlan_id)
@@ -1634,6 +1726,7 @@ async def remap_network_api(request: Request) -> JSONResponse:
             source_cidr=source_cidr,
             target_cidr=target_cidr,
             target_name=target_name,
+            target_domain=target_domain,
             remap_clients=remap_clients,
             remap_wlans=remap_wlans,
             remap_rules=remap_rules,
@@ -1648,6 +1741,7 @@ async def remap_network_api(request: Request) -> JSONResponse:
             "source_cidr": source_cidr,
             "target_cidr": target_cidr,
             "target_name": target_name,
+            "target_domain": target_domain,
         }
         existing_rule_idx = next((i for i, r in enumerate(state.vlan_remaps) if r.get("source_vlan") == source_vlan), None)
         if existing_rule_idx is not None:
@@ -1683,6 +1777,7 @@ async def remap_preview_api(request: Request) -> JSONResponse:
         target_vlan = int(body.get("target_vlan", body.get("new_vlan_id", source_vlan)))
         source_cidr = body.get("source_cidr", "")
         target_cidr = body.get("target_cidr", body.get("new_gateway_cidr", ""))
+        target_domain = body.get("target_domain", body.get("new_domain_name"))
 
         source_net = next((n for n in state.unifi_cfg.networks if n.vlan_id == source_vlan), None)
         if not source_net and source_cidr:
@@ -1731,6 +1826,8 @@ async def remap_preview_api(request: Request) -> JSONResponse:
                     })
 
         summary_text = f"Migration von {source_net.name} (VLAN {source_vlan}, {actual_src_cidr}) ➔ VLAN {target_vlan} ({actual_tgt_cidr})"
+        if target_domain and target_domain != getattr(source_net, "domain_name", ""):
+            summary_text += f", Domain: {getattr(source_net, 'domain_name', 'local')} ➔ {target_domain}"
         return JSONResponse({
             "success": True,
             "preview": {
@@ -1739,6 +1836,7 @@ async def remap_preview_api(request: Request) -> JSONResponse:
                 "source_network_name": source_net.name,
                 "source_cidr": actual_src_cidr,
                 "target_cidr": actual_tgt_cidr,
+                "target_domain": target_domain,
                 "summary": summary_text,
                 "clients_count": len(affected_clients),
                 "wlans_count": len(affected_wlans),
@@ -2028,12 +2126,18 @@ async def add_network_api(request: Request) -> JSONResponse:
         dhcp_start = str(net_data.get("dhcp_start", "")).strip()
         dhcp_stop = str(net_data.get("dhcp_stop", "")).strip()
         purpose = str(net_data.get("purpose", "corporate")).strip()
-        domain_name = str(net_data.get("domain_name", "local")).strip()
+        default_domain = getattr(state.opnsense_cfg, "system_domain", "") if state.opnsense_cfg else "local"
+        domain_name = str(net_data.get("domain_name", default_domain or "local")).strip() or "local"
+        is_management = bool(net_data.get("is_management", False))
 
         if not name:
             return JSONResponse({"success": False, "error": "Netzwerkname darf nicht leer sein."}, status_code=200)
         if any(n.vlan_id == vlan_id for n in state.unifi_cfg.networks):
             return JSONResponse({"success": False, "error": f"Ein Netzwerk mit VLAN ID {vlan_id} existiert bereits."}, status_code=200)
+
+        if is_management:
+            for n in state.unifi_cfg.networks:
+                n.is_management = False
 
         new_net = UniFiNetwork(
             name=name,
@@ -2044,12 +2148,16 @@ async def add_network_api(request: Request) -> JSONResponse:
             dhcp_start=dhcp_start,
             dhcp_stop=dhcp_stop,
             domain_name=domain_name,
+            is_management=is_management,
         )
         state.unifi_cfg.networks.append(new_net)
+        _rereconcile()
+        unifi_dict = get_unifi_config_dict()
         return JSONResponse({
             "success": True,
             "message": f"Netzwerk '{name}' (VLAN {vlan_id}) hinzugefügt.",
-            "unifi_mapped": get_unifi_config_dict()
+            "reconciliation": unifi_dict.get("reconciliation"),
+            "unifi_mapped": unifi_dict
         })
     except Exception as e:
         logger.exception("Error adding network")
@@ -2431,6 +2539,7 @@ async def edit_item_api(request: Request) -> JSONResponse:
                     if "gateway_cidr" in updates: net.gateway_cidr = updates["gateway_cidr"]
                     if "vlan_id" in updates: net.vlan_id = int(updates["vlan_id"])
                     if "dhcp_enabled" in updates: net.dhcp_enabled = bool(updates["dhcp_enabled"])
+                    if "domain_name" in updates: net.domain_name = str(updates["domain_name"]).strip()
             except ValueError:
                 pass
 
@@ -2598,6 +2707,7 @@ routes = [
     Route("/api/export-unifi-json", endpoint=export_json_api, methods=["GET"]),
     Route("/api/rules/toggle-status", endpoint=toggle_rule_status_api, methods=["POST"]),
     Route("/api/rules/update", endpoint=update_rule_api, methods=["POST"]),
+    Route("/api/rules/reorder", endpoint=reorder_rules_api, methods=["POST"]),
     Route("/api/rules/bulk-status", endpoint=bulk_rule_status_api, methods=["POST"]),
     Route("/api/rules/llm-assist", endpoint=llm_assist_rule_api, methods=["POST"]),
     Route("/api/rules/apply-llm-suggestion", endpoint=apply_llm_suggestion_api, methods=["POST"]),
