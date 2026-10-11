@@ -3246,13 +3246,33 @@
 
     async function openModemManagementModal(preselectIfaceId = null) {
       try {
-        const res = await fetch('/api/modem-management');
-        const json = await res.json();
-        if (!json.success) {
-          showToast(json.error || 'Fehler beim Laden der Modem-Daten', true);
-          return;
+        let d = null;
+        try {
+          const res = await fetch('/api/modem-management');
+          if (res.ok) {
+            const json = await res.json();
+            if (json && json.success) d = json.data;
+          }
+        } catch (fetchErr) {
+          console.warn('API /api/modem-management nicht erreichbar, nutze lokalen Zustand:', fetchErr);
         }
-        const d = json.data;
+
+        // Fallback auf lokalen Zustand (z. B. vor Server-Neustart)
+        if (!d) {
+          const mm = (lastSummary && lastSummary.modem_management) || (lastParsedData && lastParsedData.modem_management);
+          const rawIfaces = (lastSummary && lastSummary.interfaces) || (lastParsedData && lastParsedData.summary && lastParsedData.summary.interfaces) || [];
+          d = {
+            enabled: !!(mm && mm.detected),
+            interface_id: mm ? mm.interface_id : '',
+            interface_descr: mm ? mm.interface_descr : '',
+            modem_ip: mm ? mm.modem_ip : '192.168.2.1',
+            gateway_cidr: (mm && mm.gateway_ip) ? `${mm.gateway_ip}/${mm.subnet || '24'}` : '192.168.2.2/24',
+            vlan_id: mm ? (mm.allocated_vlan || 99) : 99,
+            network_name: 'MODEM_MGMT',
+            available_interfaces: rawIfaces.filter(i => i.id.toLowerCase() !== 'wan')
+          };
+        }
+
         availableModemInterfaces = d.available_interfaces || [];
 
         // Checkbox status
@@ -3307,7 +3327,7 @@
 
         document.getElementById('modem-management-modal').classList.remove('hidden');
       } catch (err) {
-        showToast('Netzwerkfehler: ' + err.message, true);
+        showToast('Fehler: ' + err.message, true);
       }
     }
 
@@ -3380,6 +3400,13 @@
             network_name: networkName
           })
         });
+        if (!res.ok) {
+          if (res.status === 404) {
+            throw new Error('Der Python-Server läuft noch mit der vorherigen Version ohne die neue API-Route (404 Not Found). Bitte starten Sie "py main.py" in Ihrem Terminal neu!');
+          }
+          const errText = await res.text();
+          throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+        }
         const json = await res.json();
         if (!json.success) {
           showToast(json.error || 'Fehler beim Speichern', true);
@@ -3402,7 +3429,7 @@
           renderInterfacesTable(lastSummary.interfaces);
         }
       } catch (err) {
-        showToast('Netzwerkfehler: ' + err.message, true);
+        showToast('Fehler: ' + err.message, true);
       }
     }
 
@@ -3419,6 +3446,13 @@
             network_name: networkName
           })
         });
+        if (!res.ok) {
+          if (res.status === 404) {
+            throw new Error('Der Python-Server läuft noch mit der vorherigen Version ohne die neue API-Route (404 Not Found). Bitte starten Sie "py main.py" in Ihrem Terminal neu!');
+          }
+          const errText = await res.text();
+          throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+        }
         const json = await res.json();
         if (!json.success) {
           showToast(json.error || 'Fehler beim Deaktivieren', true);
@@ -3441,7 +3475,7 @@
           renderInterfacesTable(lastSummary.interfaces);
         }
       } catch (err) {
-        showToast('Netzwerkfehler: ' + err.message, true);
+        showToast('Fehler: ' + err.message, true);
       }
     }
 

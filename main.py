@@ -30,6 +30,7 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", help="Host address to bind (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8080, help="Port to bind (default: 8080)")
     parser.add_argument("--no-browser", action="store_true", help="Do not automatically launch web browser")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reload on code change")
     args = parser.parse_args()
 
     url = f"http://{args.host}:{args.port}"
@@ -41,7 +42,10 @@ def main():
     if not args.no_browser:
         threading.Thread(target=open_browser_delayed, args=(url,), daemon=True).start()
 
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    if args.reload:
+        uvicorn.run("src.gui.app:app", host=args.host, port=args.port, reload=True, log_level="info")
+    else:
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":
