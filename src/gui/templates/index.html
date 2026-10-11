@@ -21,6 +21,11 @@
     .modal-tab-active { border-bottom: 2px solid #0284c7; color: #38bdf8; font-weight: 600; }
     .modal-tab-inactive { color: #94a3b8; border-bottom: 2px solid transparent; }
     .modal-tab-inactive:hover { color: #f8fafc; }
+    /* Sleek slim dark scrollbar for pills and overflow containers */
+    .scrollbar-thin::-webkit-scrollbar { height: 6px; width: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); border-radius: 9999px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(71, 85, 105, 0.7); border-radius: 9999px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.9); }
   </style>
 </head>
 <body class="min-h-full flex flex-col font-sans bg-slate-950 text-slate-100 antialiased selection:bg-sky-500 selection:text-white">
@@ -342,7 +347,7 @@
       <!-- Integrated Sub-View Navigation Pills -->
       <div class="space-y-4">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-          <div class="flex items-center gap-2 overflow-x-auto text-xs">
+          <div class="flex items-center gap-2 overflow-x-auto pb-2.5 pt-0.5 text-xs scrollbar-thin">
             <button onclick="switchSourceSubView('reconcile')" id="src-subview-btn-reconcile" class="subview-active px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition">
               <i class="fa-solid fa-code-compare"></i> 3-Wege Abgleich-Matrix
             </button>
@@ -371,19 +376,68 @@
         </div>
 
         <!-- SUB-VIEW 1: 3-WAY RECONCILIATION MATRIX -->
-        <div id="src-subview-reconcile" class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-          <div class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold flex items-center gap-2 text-cyan-300">
-              <i class="fa-solid fa-code-compare"></i> 3-Wege Abgleich-Matrix: OPNsense ↔ UCG-Max ↔ UniFi OS Server
-            </h3>
-            <div class="flex items-center gap-3">
-              <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer">
+        <div id="src-subview-reconcile" class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-semibold flex items-center gap-2 text-cyan-300">
+                <i class="fa-solid fa-code-compare"></i> 3-Wege Abgleich-Matrix: OPNsense ↔ UCG-Max ↔ UniFi OS Server
+              </h3>
+              <p class="text-[11px] text-slate-400 mt-0.5">Granular vergleichen, abwählen, editieren oder Konfliktstrategien festlegen.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button onclick="bulkResolveConflicts('opnsense_wins')" class="px-2.5 py-1 rounded bg-sky-950 hover:bg-sky-900 border border-sky-800 text-sky-300 text-xs font-medium inline-flex items-center gap-1 transition" title="Alle Konflikte mit OPNsense-Masterwerten überschreiben">
+                <i class="fa-solid fa-bolt"></i> OPNsense gewinnt
+              </button>
+              <button onclick="bulkResolveConflicts('preserve_ucg')" class="px-2.5 py-1 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 text-xs font-medium inline-flex items-center gap-1 transition" title="Alle Konflikte zugunsten des UCG schützen">
+                <i class="fa-solid fa-shield"></i> UCG schützen
+              </button>
+              <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer ml-2">
                 <input type="checkbox" id="rec-hide-excluded" onchange="renderReconciliation(lastReconciliation)" class="rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0 w-3.5 h-3.5">
                 Ausgeschlossene ausblenden
               </label>
-              <span class="text-xs text-slate-400">Echtzeit-Synchronisationsstatus</span>
             </div>
           </div>
+
+          <!-- Category Filter Bar & Live Search -->
+          <div class="flex flex-col md:flex-row items-center justify-between gap-3 pt-1 border-t border-slate-800/80">
+            <div class="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-3 pt-1 text-xs scrollbar-thin" id="rec-category-pills">
+              <button type="button" onclick="setRecCategoryFilter('all')" id="rec-cat-btn-all" class="px-2.5 py-1 rounded-lg font-medium bg-cyan-600 text-white transition whitespace-nowrap">
+                Alle (<span id="rec-count-all">0</span>)
+              </button>
+              <button type="button" onclick="setRecCategoryFilter('network')" id="rec-cat-btn-network" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition whitespace-nowrap">
+                <i class="fa-solid fa-network-wired text-sky-400 mr-1"></i> Netze (<span id="rec-count-network">0</span>)
+              </button>
+              <button type="button" onclick="setRecCategoryFilter('wlan')" id="rec-cat-btn-wlan" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition whitespace-nowrap">
+                <i class="fa-solid fa-wifi text-purple-400 mr-1"></i> WLANs (<span id="rec-count-wlan">0</span>)
+              </button>
+              <button type="button" onclick="setRecCategoryFilter('client')" id="rec-cat-btn-client" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition whitespace-nowrap">
+                <i class="fa-solid fa-laptop text-teal-400 mr-1"></i> Clients (<span id="rec-count-client">0</span>)
+              </button>
+              <button type="button" onclick="setRecCategoryFilter('dyndns')" id="rec-cat-btn-dyndns" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition whitespace-nowrap">
+                <i class="fa-solid fa-globe text-cyan-400 mr-1"></i> DynDNS (<span id="rec-count-dyndns">0</span>)
+              </button>
+              <button type="button" onclick="setRecCategoryFilter('route')" id="rec-cat-btn-route" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition whitespace-nowrap">
+                <i class="fa-solid fa-route text-amber-400 mr-1"></i> Routen (<span id="rec-count-route">0</span>)
+              </button>
+              <button type="button" onclick="setRecCategoryFilter('dns_fwd')" id="rec-cat-btn-dns_fwd" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition whitespace-nowrap">
+                <i class="fa-solid fa-font text-emerald-400 mr-1"></i> DNS (<span id="rec-count-dns_fwd">0</span>)
+              </button>
+              <button type="button" onclick="setRecCategoryFilter('system')" id="rec-cat-btn-system" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition whitespace-nowrap">
+                <i class="fa-solid fa-clock text-rose-400 mr-1"></i> System (<span id="rec-count-system">0</span>)
+              </button>
+              <button type="button" onclick="setRecCategoryFilter('services')" id="rec-cat-btn-services" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition whitespace-nowrap">
+                <i class="fa-solid fa-bullhorn text-indigo-400 mr-1"></i> Dienste (<span id="rec-count-services">0</span>)
+              </button>
+              <button type="button" onclick="setRecCategoryFilter('device')" id="rec-cat-btn-device" class="px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition whitespace-nowrap">
+                <i class="fa-solid fa-server text-indigo-400 mr-1"></i> Geräte (<span id="rec-count-device">0</span>)
+              </button>
+            </div>
+            <div class="relative w-full md:w-64 shrink-0">
+              <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-500 text-xs"></i>
+              <input type="text" id="rec-search-input" oninput="renderReconciliation(lastReconciliation)" placeholder="Filtere Einstellungen, IPs, Namen..." class="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
+            </div>
+          </div>
+
           <!-- Exclusions / consequences panel (hidden when nothing is excluded) -->
           <div id="exclusion-panel" class="hidden rounded-lg border border-rose-900/60 bg-rose-950/10 p-3 space-y-2 text-xs"></div>
           <div class="overflow-x-auto">
@@ -392,10 +446,10 @@
                 <tr>
                   <th class="py-2.5 px-3">Kategorie</th>
                   <th class="py-2.5 px-3">Element</th>
-                  <th class="py-2.5 px-3">OPNsense (Soll)</th>
+                  <th class="py-2.5 px-3">OPNsense (Master)</th>
                   <th class="py-2.5 px-3">UCG-Max (Ist)</th>
-                  <th class="py-2.5 px-3">UOS Server (Ist)</th>
-                  <th class="py-2.5 px-3">Status / Aktion</th>
+                  <th class="py-2.5 px-3">UOS Server (Bestand)</th>
+                  <th class="py-2.5 px-3">Status &amp; Steuerung</th>
                   <th class="py-2.5 px-3">Erläuterung &amp; Strategie</th>
                 </tr>
               </thead>
@@ -680,7 +734,7 @@
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 shadow-sm">
         <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <!-- Category Filter Pills -->
-          <div class="flex items-center gap-1.5 overflow-x-auto text-xs">
+          <div class="flex items-center gap-1.5 overflow-x-auto pb-2.5 pt-0.5 text-xs scrollbar-thin">
             <button onclick="switchReviewCategory('all')" id="rev-cat-all" class="subview-active px-3 py-1.5 rounded-lg transition">
               Alle Komponenten
             </button>
@@ -744,6 +798,7 @@
             </button>
           </div>
         </div>
+
         <div class="overflow-x-auto">
           <table class="w-full text-xs text-left">
             <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
@@ -1022,6 +1077,54 @@
             </div>
           </div>
         </div>
+
+        <!-- DynDNS Review Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold flex items-center gap-2 text-teal-400">
+              <i class="fa-solid fa-globe"></i> Dynamic DNS (ddclient / UniFi WAN DDNS)
+            </h3>
+          </div>
+          <div class="overflow-x-auto max-h-60 overflow-y-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40 sticky top-0">
+                <tr>
+                  <th class="py-2 px-3">Hostname</th>
+                  <th class="py-2 px-3">Dienst</th>
+                  <th class="py-2 px-3">Interface</th>
+                  <th class="py-2 px-3">Benutzer</th>
+                </tr>
+              </thead>
+              <tbody id="unifi-dyndns-tbody" class="divide-y divide-slate-800">
+                <tr><td colspan="4" class="py-3 text-center text-slate-500">Keine Dynamic DNS Einträge konfiguriert.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Static Routes Review Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold flex items-center gap-2 text-amber-400">
+              <i class="fa-solid fa-route"></i> Statische Routen (UniFi Routing)
+            </h3>
+          </div>
+          <div class="overflow-x-auto max-h-60 overflow-y-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40 sticky top-0">
+                <tr>
+                  <th class="py-2 px-3">Name / Zweck</th>
+                  <th class="py-2 px-3">Ziel-Netz (CIDR)</th>
+                  <th class="py-2 px-3">Next-Hop Gateway</th>
+                  <th class="py-2 px-3">Distanz</th>
+                </tr>
+              </thead>
+              <tbody id="unifi-routes-tbody" class="divide-y divide-slate-800">
+                <tr><td colspan="4" class="py-3 text-center text-slate-500">Keine statischen Routen konfiguriert.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -1215,6 +1318,21 @@
             <label class="block text-slate-400 mb-1">Domain Name</label>
             <input type="text" id="modal-net-domain" placeholder="local" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500 font-mono">
           </div>
+        </div>
+
+        <!-- MANAGEMENT VLAN OPTION (0 or 1 selection) -->
+        <div id="modal-net-mgmt-box" class="p-3 bg-amber-950/30 rounded-xl border border-amber-800/60 space-y-1.5 transition">
+          <label class="flex items-start gap-2.5 cursor-pointer">
+            <input type="checkbox" id="modal-net-is-management" class="mt-0.5 rounded bg-slate-900 border-amber-600 text-amber-500 focus:ring-0 w-4 h-4 cursor-pointer">
+            <div>
+              <span class="font-semibold text-amber-300 text-xs flex items-center gap-1.5">
+                <i class="fa-solid fa-crown text-amber-400"></i> Als primäres Management-VLAN verwenden
+              </span>
+              <p class="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                Kennzeichnet dieses Netzwerk als zentrales Management-VLAN (UniFi Default). Falls das Quell-Netz nicht auf VLAN 1 liegt, wird es bei Aktivierung automatisch nach VLAN 1 verschoben und bestehende Switche/APs harmonisiert.
+              </p>
+            </div>
+          </label>
         </div>
 
         <div id="modal-net-migration-box" class="p-3 bg-indigo-950/40 rounded-xl border border-indigo-800/60 space-y-2">
@@ -1659,6 +1777,34 @@
         <button onclick="closeExcludeModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">Abbrechen</button>
         <button id="excl-confirm" onclick="confirmExclude()" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow">
           <i class="fa-solid fa-ban"></i> Nicht migrieren
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ===================================================================== -->
+  <!-- MODAL 6: UNIVERSAL EDIT MODAL (3-WEGE SYNC ANPASSUNG)                 -->
+  <!-- ===================================================================== -->
+  <div id="universal-edit-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-cyan-800/60 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <h3 class="text-sm font-semibold text-cyan-300 flex items-center gap-2">
+          <i class="fa-solid fa-pen-to-square text-cyan-400"></i> <span id="uni-edit-title">Einstellung bearbeiten</span>
+        </h3>
+        <button onclick="closeUniversalEditModal()" class="text-slate-400 hover:text-slate-200 text-lg">&times;</button>
+      </div>
+      <input type="hidden" id="uni-edit-item-id" value="">
+      <input type="hidden" id="uni-edit-category" value="">
+      
+      <div id="uni-edit-fields" class="space-y-3 text-xs">
+        <!-- Dynamically populated based on category -->
+      </div>
+
+      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+        <button onclick="closeUniversalEditModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">Abbrechen</button>
+        <button onclick="saveUniversalEditModal()" class="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow">
+          <i class="fa-solid fa-check"></i> Speichern &amp; Abgleichen
         </button>
       </div>
     </div>
@@ -2598,13 +2744,24 @@
         if (currentNetworks.length === 0) {
           netTbody.innerHTML = '<tr><td colspan="6" class="py-3 text-center text-slate-500">Keine Netzwerke geladen.</td></tr>';
         } else {
-          netTbody.innerHTML = currentNetworks.map((n, idx) => `
-            <tr class="hover:bg-slate-800/40 ${migRowClass(n.migration)}">
-              <td class="py-2.5 px-3 font-semibold text-sky-300 flex items-center gap-2">
-                <i class="fa-solid fa-network-wired text-sky-400"></i> ${n.name} ${migBadge(n.migration)}
+          netTbody.innerHTML = currentNetworks.map((n, idx) => {
+            const isMgmt = !!n.is_management || (n.vlan_id === 1 && (n.name.toLowerCase().includes('mgmt') || n.name.toLowerCase().includes('management') || n.name === 'Default'));
+            const rowClass = isMgmt ? 'bg-amber-950/15 border-l-4 border-l-amber-500 hover:bg-amber-950/25' : `hover:bg-slate-800/40 ${migRowClass(n.migration)}`;
+            const nameColor = isMgmt ? 'text-amber-200' : 'text-sky-300';
+            const vlanBadge = isMgmt && n.vlan_id === 1
+              ? '<span class="px-2 py-0.5 rounded bg-amber-950/70 text-amber-300 border border-amber-700/80 font-bold">VLAN 1 (Native Untagged)</span>'
+              : `<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">VLAN ${n.vlan_id}</span>`;
+            const mgmtBadge = isMgmt
+              ? `<button type="button" onclick="openEditNetworkModal(${idx}, 'management')" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 inline-flex items-center gap-1 shadow-sm transition hover:scale-105 cursor-pointer" title="Management-VLAN – Klicken zum Bearbeiten in den Details"><i class="fa-solid fa-crown text-amber-400"></i> Management <i class="fa-solid fa-gear text-[9px] opacity-70 ml-0.5"></i></button>`
+              : `<button type="button" onclick="openEditNetworkModal(${idx}, 'management')" class="px-2 py-0.5 rounded-full text-[10px] font-medium text-slate-400 hover:text-amber-300 hover:bg-amber-950/40 border border-slate-800 hover:border-amber-800/60 inline-flex items-center gap-1 transition cursor-pointer" title="Klicken, um dieses Netzwerk in den Details als Management-VLAN festzulegen"><i class="fa-regular fa-star text-[9px]"></i> Als Mgmt festlegen</button>`;
+
+            return `
+            <tr class="${rowClass}">
+              <td class="py-2.5 px-3 font-semibold ${nameColor} flex items-center gap-2 flex-wrap">
+                <i class="fa-solid ${isMgmt ? 'fa-crown text-amber-400' : 'fa-network-wired text-sky-400'}"></i> ${n.name} ${mgmtBadge} ${migBadge(n.migration)}
               </td>
               <td class="py-2.5 px-3 font-mono font-bold text-slate-200">
-                <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">VLAN ${n.vlan_id}</span>
+                ${vlanBadge}
               </td>
               <td class="py-2.5 px-3 font-mono text-slate-200 font-medium">${n.gateway_cidr}</td>
               <td class="py-2.5 px-3">
@@ -2621,12 +2778,13 @@
                 <button onclick="openEditNetworkModal(${idx})" class="px-2.5 py-1 rounded bg-sky-950 hover:bg-sky-900 border border-sky-800 text-sky-300 text-xs font-medium inline-flex items-center gap-1 transition" title="Netzwerk / VLAN anpassen">
                   <i class="fa-solid fa-pen-to-square"></i> Anpassen
                 </button>
-                <button onclick="deleteNetwork(${idx})" class="px-2 py-1 rounded bg-slate-800 hover:bg-red-950 border border-slate-700 hover:border-red-800 text-slate-400 hover:text-red-300 text-xs inline-flex items-center transition ml-1" title="Netzwerk löschen">
+                <button onclick="deleteNetwork(${idx})" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-red-950 border border-slate-700 hover:border-red-800 text-slate-400 hover:text-red-300 text-xs inline-flex items-center transition ml-1" title="Netzwerk löschen">
                   <i class="fa-solid fa-trash"></i>
                 </button>
               </td>
             </tr>
-          `).join('');
+            `;
+          }).join('');
         }
       }
 
@@ -2770,6 +2928,42 @@
         trEl.innerText = `${trCount} Traffic Rules (Domain/Region)`;
       }
 
+      // DynDNS
+      const ddnsTbody = document.getElementById('unifi-dyndns-tbody');
+      if (ddnsTbody) {
+        const ddns = u.dynamic_dns || [];
+        if (ddns.length > 0) {
+          ddnsTbody.innerHTML = ddns.map(d => `
+            <tr class="hover:bg-slate-800/40">
+              <td class="py-2 px-3 font-semibold text-teal-300 font-mono">${d.host_name}</td>
+              <td class="py-2 px-3 font-mono text-slate-300">${d.service}</td>
+              <td class="py-2 px-3 font-mono text-slate-400">${d.interface}</td>
+              <td class="py-2 px-3 text-slate-400">${d.login || '-'}</td>
+            </tr>
+          `).join('');
+        } else {
+          ddnsTbody.innerHTML = `<tr><td colspan="4" class="py-3 text-center text-slate-500">Keine Dynamic DNS Einträge konfiguriert.</td></tr>`;
+        }
+      }
+
+      // Static Routes
+      const routesTbody = document.getElementById('unifi-routes-tbody');
+      if (routesTbody) {
+        const routes = u.static_routes || [];
+        if (routes.length > 0) {
+          routesTbody.innerHTML = routes.map(r => `
+            <tr class="hover:bg-slate-800/40">
+              <td class="py-2 px-3 font-semibold text-amber-300">${r.name}</td>
+              <td class="py-2 px-3 font-mono text-slate-200 font-bold">${r.network}</td>
+              <td class="py-2 px-3 font-mono text-slate-400">${r.next_hop}</td>
+              <td class="py-2 px-3 font-mono text-slate-400">${r.distance}</td>
+            </tr>
+          `).join('');
+        } else {
+          routesTbody.innerHTML = `<tr><td colspan="4" class="py-3 text-center text-slate-500">Keine statischen Routen konfiguriert.</td></tr>`;
+        }
+      }
+
       // Render Reconciliation & WLANs if available
       if (u.reconciliation) {
         renderReconciliation(u.reconciliation);
@@ -2806,7 +3000,7 @@
       }
     }
 
-    function openEditNetworkModal(idx) {
+    function openEditNetworkModal(idx, focusField = null) {
       if (idx < 0 || idx >= currentNetworks.length) return;
       const n = currentNetworks[idx];
       document.getElementById('modal-net-index').value = idx;
@@ -2819,6 +3013,16 @@
       document.getElementById('modal-net-dhcp-stop').value = n.dhcp_stop || '';
       document.getElementById('modal-net-purpose').value = n.purpose || 'corporate';
       document.getElementById('modal-net-domain').value = n.domain_name || 'local';
+      
+      const isMgmtEl = document.getElementById('modal-net-is-management');
+      if (isMgmtEl) {
+        isMgmtEl.checked = !!n.is_management || (n.vlan_id === 1 && (n.name.toLowerCase().includes('mgmt') || n.name.toLowerCase().includes('management') || n.name === 'Default'));
+      }
+      const mgmtBox = document.getElementById('modal-net-mgmt-box');
+      if (mgmtBox) {
+        mgmtBox.classList.remove('ring-2', 'ring-amber-500', 'bg-amber-950/50');
+      }
+
       toggleModalDhcpFields();
 
       // Setup migration tab source option
@@ -2826,6 +3030,16 @@
 
       switchNetworkModalTab('params');
       document.getElementById('edit-network-modal').classList.remove('hidden');
+
+      if (focusField === 'management') {
+        if (mgmtBox) {
+          mgmtBox.classList.add('ring-2', 'ring-amber-500', 'bg-amber-950/50');
+          setTimeout(() => {
+            if (isMgmtEl) isMgmtEl.focus();
+            mgmtBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }, 100);
+        }
+      }
     }
 
     function openAddNetworkModal() {
@@ -2839,6 +3053,10 @@
       document.getElementById('modal-net-dhcp-stop').value = '192.168.100.250';
       document.getElementById('modal-net-purpose').value = 'corporate';
       document.getElementById('modal-net-domain').value = 'local';
+      const isMgmtEl = document.getElementById('modal-net-is-management');
+      if (isMgmtEl) isMgmtEl.checked = false;
+      const mgmtBox = document.getElementById('modal-net-mgmt-box');
+      if (mgmtBox) mgmtBox.classList.remove('ring-2', 'ring-amber-500', 'bg-amber-950/50');
       toggleModalDhcpFields();
 
       initRemapDropdowns(null);
@@ -2887,6 +3105,7 @@
       const dhcp_stop = document.getElementById('modal-net-dhcp-stop').value.trim();
       const purpose = document.getElementById('modal-net-purpose').value;
       const domain_name = document.getElementById('modal-net-domain').value.trim();
+      const is_management = document.getElementById('modal-net-is-management') ? document.getElementById('modal-net-is-management').checked : false;
 
       if (!name) { showToast('Netzwerkname darf nicht leer sein.', true); return; }
       if (isNaN(vlan_id) || vlan_id < 1 || vlan_id > 4094) { showToast('VLAN ID muss zwischen 1 und 4094 liegen.', true); return; }
@@ -2896,7 +3115,7 @@
       const remapWlans = document.getElementById('modal-net-cascade-wlans') ? document.getElementById('modal-net-cascade-wlans').checked : true;
       const remapRules = document.getElementById('modal-net-cascade-rules') ? document.getElementById('modal-net-cascade-rules').checked : true;
 
-      const netData = { name, vlan_id, gateway_cidr, dhcp_enabled, dhcp_start, dhcp_stop, purpose, domain_name };
+      const netData = { name, vlan_id, gateway_cidr, dhcp_enabled, dhcp_start, dhcp_stop, purpose, domain_name, is_management };
       const endpoint = idx >= 0 ? '/api/networks/update' : '/api/networks/add';
       const payload = idx >= 0 ? {
         index: idx,
@@ -3198,6 +3417,48 @@
       }
     }
 
+    async function applyStrategyA() {
+      const confirmMsg = 'Möchten Sie Strategie A anwenden? Das OPNsense Management-Netzwerk (VLAN 10) wird vollautomatisch mit dem UniFi Default-Netzwerk (VLAN 1) verschmolzen und als primäres Management-Netzwerk deklariert. Alle Leases, WLANs und Regeln werden kaskadierend angepasst.';
+      if (!confirm(confirmMsg)) return;
+
+      try {
+        const res = await fetch('/api/networks/apply-strategy-a', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
+          if (data.reconciliation) renderReconciliation(data.reconciliation);
+          showToast(data.message || 'Strategie A erfolgreich angewendet!');
+        } else {
+          showToast(data.error || 'Fehler beim Anwenden von Strategie A', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    async function setManagementVlan(vlanId) {
+      try {
+        const res = await fetch('/api/networks/set-management', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ vlan_id: vlanId })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
+          showToast(data.message || `VLAN ${vlanId} als Management markiert.`);
+        } else {
+          showToast(data.error || 'Fehler beim Setzen des Management-VLANs', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
     // -------------------------------------------------------------------------
     // Fixed IP Management Handlers
     // -------------------------------------------------------------------------
@@ -3211,9 +3472,11 @@
       document.getElementById('modal-fip-mac').value = f.mac || '';
 
       const selNet = document.getElementById('modal-fip-network');
-      selNet.innerHTML = currentNetworks.map(n => `
-        <option value="${n.name}" ${n.name === f.network_name ? 'selected' : ''}>${n.name} (VLAN ${n.vlan_id})</option>
-      `).join('');
+      selNet.innerHTML = currentNetworks
+        .filter(n => !n.is_wan && !n.is_vpn && n.purpose !== 'wan' && n.purpose !== 'vpn')
+        .map(n => `
+          <option value="${n.name}" ${n.name === f.network_name ? 'selected' : ''}>${n.name} (VLAN ${n.vlan_id})${n.is_management ? ' 👑 [Mgmt]' : ''}</option>
+        `).join('');
 
       document.getElementById('edit-fixedip-modal').classList.remove('hidden');
     }
@@ -3226,9 +3489,11 @@
       document.getElementById('modal-fip-mac').value = '';
 
       const selNet = document.getElementById('modal-fip-network');
-      selNet.innerHTML = currentNetworks.map(n => `
-        <option value="${n.name}">${n.name} (VLAN ${n.vlan_id})</option>
-      `).join('');
+      selNet.innerHTML = currentNetworks
+        .filter(n => !n.is_wan && !n.is_vpn && n.purpose !== 'wan' && n.purpose !== 'vpn')
+        .map(n => `
+          <option value="${n.name}">${n.name} (VLAN ${n.vlan_id})${n.is_management ? ' 👑 [Mgmt]' : ''}</option>
+        `).join('');
 
       document.getElementById('edit-fixedip-modal').classList.remove('hidden');
     }
@@ -3315,9 +3580,11 @@
 
       if (currentNetworks && currentNetworks.length > 0) {
         currentNetworks.forEach(n => {
+          if (n.is_wan || n.is_vpn || n.purpose === 'wan' || n.purpose === 'vpn') return;
           const isSel = (n.vlan_id === targetVlan);
           if (isSel) foundExact = true;
-          optionsHtml += `<option value="${n.vlan_id}" ${isSel ? 'selected' : ''}>VLAN ${n.vlan_id}: ${n.name} (${n.gateway_cidr})</option>`;
+          const mgmtBadge = n.is_management || n.vlan_id === 1 ? ' 👑 [Management]' : '';
+          optionsHtml += `<option value="${n.vlan_id}" ${isSel ? 'selected' : ''}>VLAN ${n.vlan_id}: ${n.name} (${n.gateway_cidr})${mgmtBadge}</option>`;
         });
       }
 
@@ -3350,7 +3617,9 @@
       let optionsHtml = '<option value="0">Default / Untagged (VLAN 1)</option>';
       if (currentNetworks && currentNetworks.length > 0) {
         currentNetworks.forEach(n => {
-          optionsHtml += `<option value="${n.vlan_id}">VLAN ${n.vlan_id}: ${n.name} (${n.gateway_cidr})</option>`;
+          if (n.is_wan || n.is_vpn || n.purpose === 'wan' || n.purpose === 'vpn') return;
+          const mgmtBadge = n.is_management || n.vlan_id === 1 ? ' 👑 [Management]' : '';
+          optionsHtml += `<option value="${n.vlan_id}">VLAN ${n.vlan_id}: ${n.name} (${n.gateway_cidr})${mgmtBadge}</option>`;
         });
       }
       optionsHtml += '<option value="custom">Benutzerdefinierte VLAN-ID...</option>';
@@ -3461,6 +3730,261 @@
     // -------------------------------------------------------------------------
     // Multi-Source Reconciliation & Synchronization Handlers
     // -------------------------------------------------------------------------
+    let currentRecCategoryFilter = 'all';
+
+    function setRecCategoryFilter(cat) {
+      currentRecCategoryFilter = cat;
+      const pills = document.querySelectorAll('#rec-category-pills button');
+      pills.forEach(b => {
+        b.className = 'px-2.5 py-1 rounded-lg font-medium text-slate-400 hover:text-slate-200 bg-slate-950/60 border border-slate-800 transition whitespace-nowrap';
+      });
+      const activeBtn = document.getElementById(`rec-cat-btn-${cat}`);
+      if (activeBtn) {
+        activeBtn.className = 'px-2.5 py-1 rounded-lg font-medium bg-cyan-600 text-white transition whitespace-nowrap shadow-sm';
+      }
+      if (lastReconciliation) renderReconciliation(lastReconciliation);
+    }
+
+    async function bulkResolveConflicts(strategy) {
+      try {
+        const res = await fetch('/api/sources/bulk-resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ strategy: strategy })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
+          if (data.unifi_mapped && data.unifi_mapped.reconciliation) renderReconciliation(data.unifi_mapped.reconciliation);
+          showToast(data.message || 'Konflikte aufgelöst!');
+        } else {
+          showToast(data.error || 'Fehler beim Auflösen der Konflikte', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    function openUniversalEditModal(itemId, category, currentVal, optKey) {
+      const modal = document.getElementById('universal-edit-modal');
+      const titleEl = document.getElementById('uni-edit-title');
+      const idInput = document.getElementById('uni-edit-item-id');
+      const catInput = document.getElementById('uni-edit-category');
+      const fieldsDiv = document.getElementById('uni-edit-fields');
+      if (!modal || !fieldsDiv) return;
+
+      idInput.value = itemId || '';
+      catInput.value = category || '';
+      titleEl.innerText = `${category.toUpperCase()}: ${optKey || itemId}`;
+
+      let fieldsHtml = '';
+      if (category === 'network') {
+        fieldsHtml = `
+          <div>
+            <label class="block text-slate-400 mb-1">Netzwerkname</label>
+            <input type="text" id="uni-field-name" value="${escapeHtml(optKey || '')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-semibold focus:border-cyan-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Gateway CIDR (Subnetz)</label>
+            <input type="text" id="uni-field-cidr" value="${escapeHtml(currentVal || '192.168.1.1/24')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          </div>
+          <div class="flex items-center gap-2 pt-1">
+            <input type="checkbox" id="uni-field-dhcp" checked class="rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-0 w-4 h-4">
+            <label for="uni-field-dhcp" class="text-slate-300">DHCP-Server auf diesem Subnetz aktivieren</label>
+          </div>
+        `;
+      } else if (category === 'client') {
+        fieldsHtml = `
+          <div>
+            <label class="block text-slate-400 mb-1">Client-Name (Klarname)</label>
+            <input type="text" id="uni-field-name" value="${escapeHtml(optKey || '')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-semibold focus:border-cyan-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Feste IP-Adresse</label>
+            <input type="text" id="uni-field-ip" value="${escapeHtml(currentVal || '')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          </div>
+        `;
+      } else if (category === 'dyndns') {
+        fieldsHtml = `
+          <div>
+            <label class="block text-slate-400 mb-1">DynDNS Hostname (FQDN)</label>
+            <input type="text" id="uni-field-host" value="${escapeHtml(optKey || '')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 mb-1">Service / Provider</label>
+              <select id="uni-field-service" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 font-mono">
+                <option value="cloudflare">Cloudflare</option>
+                <option value="strato">Strato</option>
+                <option value="duckdns">DuckDNS</option>
+                <option value="dyndns">DynDNS / Dyn</option>
+                <option value="noip">No-IP</option>
+                <option value="custom">Custom (Benutzerdefiniert)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1">WAN Schnittstelle</label>
+              <select id="uni-field-iface" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 font-mono">
+                <option value="WAN">WAN (Primär)</option>
+                <option value="WAN2">WAN2 (Secondary)</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Benutzername / Token-ID</label>
+            <input type="text" id="uni-field-login" placeholder="API Token oder Account E-Mail" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Passwort / API Secret</label>
+            <input type="password" id="uni-field-pass" placeholder="••••••••" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          </div>
+        `;
+      } else if (category === 'route') {
+        fieldsHtml = `
+          <div>
+            <label class="block text-slate-400 mb-1">Ziel-Netzwerk (CIDR)</label>
+            <input type="text" id="uni-field-network" value="${escapeHtml(optKey || '')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Next-Hop Gateway IP</label>
+            <input type="text" id="uni-field-nexthop" value="${escapeHtml(currentVal || '')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Distanz / Metrik</label>
+            <input type="number" id="uni-field-dist" value="1" min="1" max="255" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          </div>
+        `;
+      } else if (category === 'dns_fwd') {
+        fieldsHtml = `
+          <div>
+            <label class="block text-slate-400 mb-1">Interne Domäne (FQDN)</label>
+            <input type="text" id="uni-field-domain" value="${escapeHtml(optKey || '')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Ziel DNS-Server IP</label>
+            <input type="text" id="uni-field-dnsto" value="${escapeHtml(currentVal || '')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          </div>
+        `;
+      } else if (category === 'multi_wan') {
+        fieldsHtml = `
+          <div>
+            <label class="block text-slate-400 mb-1">Multi-WAN Betriebsmodus</label>
+            <select id="uni-field-mw-mode" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 font-mono">
+              <option value="failover">Failover Only (Primär + Ausfallschutz)</option>
+              <option value="distributed">Distributed (Lastverteilung / Load Balancing)</option>
+            </select>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 mb-1">Port für WAN2 (UCG-Max)</label>
+              <select id="uni-field-mw-port" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 font-mono">
+                <option value="Port 4">Port 4 (2.5 GbE)</option>
+                <option value="Port 5">Port 5 (2.5 GbE)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1">Lastverteilung WAN1 / WAN2</label>
+              <input type="number" id="uni-field-mw-pct" value="50" min="10" max="90" step="5" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono">
+            </div>
+          </div>
+        `;
+      } else if (category === 'system') {
+        fieldsHtml = `
+          <div>
+            <label class="block text-slate-400 mb-1">Upstream Zeitserver (Kommagetrennt)</label>
+            <input type="text" id="uni-field-ntp" value="${escapeHtml(currentVal || '0.pool.ntp.org, 1.pool.ntp.org')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          </div>
+        `;
+      } else {
+        fieldsHtml = `
+          <div>
+            <label class="block text-slate-400 mb-1">Wert anpassen</label>
+            <input type="text" id="uni-field-generic" value="${escapeHtml(currentVal || '')}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 font-mono focus:border-cyan-500">
+          </div>
+        `;
+      }
+      fieldsDiv.innerHTML = fieldsHtml;
+      modal.classList.remove('hidden');
+    }
+
+    function closeUniversalEditModal() {
+      const modal = document.getElementById('universal-edit-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    async function saveUniversalEditModal() {
+      const itemId = document.getElementById('uni-edit-item-id')?.value;
+      const category = document.getElementById('uni-edit-category')?.value;
+      if (!itemId || !category) return;
+
+      const updates = {};
+      if (category === 'network') {
+        const n = document.getElementById('uni-field-name')?.value;
+        const c = document.getElementById('uni-field-cidr')?.value;
+        const dh = document.getElementById('uni-field-dhcp')?.checked;
+        if (n) updates.name = n;
+        if (c) updates.gateway_cidr = c;
+        updates.dhcp_enabled = dh;
+      } else if (category === 'client') {
+        const n = document.getElementById('uni-field-name')?.value;
+        const ip = document.getElementById('uni-field-ip')?.value;
+        if (n) updates.name = n;
+        if (ip) updates.fixed_ip = ip;
+      } else if (category === 'dyndns') {
+        const h = document.getElementById('uni-field-host')?.value;
+        const s = document.getElementById('uni-field-service')?.value;
+        const iface = document.getElementById('uni-field-iface')?.value;
+        const l = document.getElementById('uni-field-login')?.value;
+        const p = document.getElementById('uni-field-pass')?.value;
+        if (h) updates.host_name = h;
+        if (s) updates.service = s;
+        if (iface) updates.interface = iface;
+        if (l) updates.login = l;
+        if (p) updates.password = p;
+      } else if (category === 'route') {
+        const net = document.getElementById('uni-field-network')?.value;
+        const nh = document.getElementById('uni-field-nexthop')?.value;
+        const dist = document.getElementById('uni-field-dist')?.value;
+        if (net) updates.network = net;
+        if (nh) updates.next_hop = nh;
+        if (dist) updates.distance = dist;
+      } else if (category === 'dns_fwd') {
+        const d = document.getElementById('uni-field-domain')?.value;
+        const to = document.getElementById('uni-field-dnsto')?.value;
+        if (d) updates.domain = d;
+        if (to) updates.forward_to_ip = to;
+      } else if (category === 'multi_wan') {
+        const m = document.getElementById('uni-field-mw-mode')?.value;
+        const p = document.getElementById('uni-field-mw-port')?.value;
+        const pct = document.getElementById('uni-field-mw-pct')?.value;
+        if (m) updates.mode = m;
+        if (p) updates.wan2_port = p;
+        if (pct) updates.load_balance_percentage = pct;
+      } else if (category === 'system') {
+        const ntp = document.getElementById('uni-field-ntp')?.value;
+        if (ntp) updates.servers = ntp;
+      }
+
+      try {
+        const res = await fetch('/api/sources/edit-item', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: itemId, updates: updates })
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeUniversalEditModal();
+          if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
+          if (data.unifi_mapped && data.unifi_mapped.reconciliation) renderReconciliation(data.unifi_mapped.reconciliation);
+          showToast(data.message || 'Einstellung erfolgreich aktualisiert!');
+        } else {
+          showToast(data.error || 'Fehler beim Speichern', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
     function syncUcgCredentials() {
       const h = document.getElementById('src-ucg-host')?.value;
       const u = document.getElementById('src-ucg-user')?.value;
@@ -3490,17 +4014,55 @@
       if (elCl) elCl.innerText = m.clients_enriched || 0;
       if (elDv) elDv.innerText = m.devices_mapped || 0;
 
+      const items = rep.items || [];
+      const counts = {
+        all: items.length,
+        network: items.filter(i => i.category === 'network').length,
+        wlan: items.filter(i => i.category === 'wlan').length,
+        client: items.filter(i => i.category === 'client').length,
+        dyndns: items.filter(i => i.category === 'dyndns').length,
+        route: items.filter(i => i.category === 'route' || i.category === 'multi_wan').length,
+        dns_fwd: items.filter(i => i.category === 'dns_fwd').length,
+        system: items.filter(i => i.category === 'system').length,
+        services: items.filter(i => i.category === 'services').length,
+        device: items.filter(i => i.category === 'device').length,
+      };
+
+      for (const [k, count] of Object.entries(counts)) {
+        const el = document.getElementById(`rec-count-${k}`);
+        if (el) el.innerText = count;
+      }
+
       const tbody = document.getElementById('reconciliation-tbody');
       if (!tbody) return;
 
-      if (!rep.items || rep.items.length === 0) {
+      if (items.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">Keine Abweichungen oder Konflikte festgestellt.</td></tr>';
         return;
       }
 
-      tbody.innerHTML = rep.items.filter(item =>
-        !(document.getElementById('rec-hide-excluded')?.checked && item.status === 'excluded')
-      ).map(item => {
+      const q = (document.getElementById('rec-search-input')?.value || '').trim().toLowerCase();
+      const hideExcl = document.getElementById('rec-hide-excluded')?.checked;
+
+      const filtered = items.filter(item => {
+        if (hideExcl && item.status === 'excluded') return false;
+        if (currentRecCategoryFilter !== 'all') {
+          if (currentRecCategoryFilter === 'route' && !(item.category === 'route' || item.category === 'multi_wan')) return false;
+          else if (currentRecCategoryFilter !== 'route' && item.category !== currentRecCategoryFilter) return false;
+        }
+        if (q) {
+          const hay = `${item.category} ${item.key} ${item.opnsense_val || ''} ${item.ucg_val || ''} ${item.uos_val || ''} ${item.explanation || ''} ${item.status || ''}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">Keine Elemente entsprechen den aktuellen Filterkriterien.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(item => {
         let badge = '';
         if (item.status === 'aligned') {
           badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">ABGEGLICHEN</span>';
@@ -3521,19 +4083,30 @@
         const catIcon = item.category === 'network' ? 'fa-network-wired text-sky-400' :
                         item.category === 'wlan' ? 'fa-wifi text-purple-400' :
                         item.category === 'client' ? 'fa-laptop text-teal-400' :
-                        item.category === 'device' ? 'fa-server text-indigo-400' : 'fa-tag text-slate-400';
+                        item.category === 'device' ? 'fa-server text-indigo-400' :
+                        item.category === 'dyndns' ? 'fa-globe text-cyan-400' :
+                        item.category === 'route' ? 'fa-route text-amber-400' :
+                        item.category === 'dns_fwd' ? 'fa-font text-emerald-400' :
+                        item.category === 'multi_wan' ? 'fa-traffic-light text-blue-400' :
+                        item.category === 'system' ? 'fa-clock text-rose-400' :
+                        item.category === 'services' ? 'fa-bullhorn text-indigo-400' : 'fa-tag text-slate-400';
 
         let remapBtn = '';
         if (item.category === 'network' && item.status !== 'excluded') {
           remapBtn = ` <button onclick="openVlanRemapModal()" class="ml-1 text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold underline inline-flex items-center gap-1"><i class="fa-solid fa-shuffle"></i> Zuordnen / Mergen</button>`;
         }
 
-        let exclBtn = '';
+        let actionBtns = '';
         if (item.item_id) {
-          exclBtn = item.status === 'excluded'
-            ? `<button data-id="${escapeHtml(item.item_id)}" onclick="includeItem(this.dataset.id)" class="mt-1 px-2 py-0.5 rounded bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-[10px] font-semibold inline-flex items-center gap-1 transition"><i class="fa-solid fa-rotate-left"></i> Wieder übernehmen</button>`
-            : `<button data-id="${escapeHtml(item.item_id)}" onclick="openExcludeModal(this.dataset.id)" class="mt-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-rose-950 border border-slate-700 hover:border-rose-800 text-slate-300 hover:text-rose-300 text-[10px] font-semibold inline-flex items-center gap-1 transition"><i class="fa-solid fa-ban"></i> Nicht migrieren</button>`;
+          const editBtn = `<button data-id="${escapeHtml(item.item_id)}" data-cat="${escapeHtml(item.category)}" data-val="${escapeHtml(item.opnsense_val || item.ucg_val || '')}" data-key="${escapeHtml(item.key)}" onclick="openUniversalEditModal(this.dataset.id, this.dataset.cat, this.dataset.val, this.dataset.key)" class="px-2 py-0.5 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 text-[10px] font-semibold inline-flex items-center gap-1 transition mr-1" title="Wert vor dem Rollout anpassen"><i class="fa-solid fa-pen-to-square"></i> Ändern</button>`;
+
+          const exclBtn = item.status === 'excluded'
+            ? `<button data-id="${escapeHtml(item.item_id)}" onclick="includeItem(this.dataset.id)" class="px-2 py-0.5 rounded bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-[10px] font-semibold inline-flex items-center gap-1 transition"><i class="fa-solid fa-rotate-left"></i> Wieder übernehmen</button>`
+            : `<button data-id="${escapeHtml(item.item_id)}" onclick="openExcludeModal(this.dataset.id)" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-rose-950 border border-slate-700 hover:border-rose-800 text-slate-300 hover:text-rose-300 text-[10px] font-semibold inline-flex items-center gap-1 transition"><i class="fa-solid fa-ban"></i> Nicht migrieren</button>`;
+
+          actionBtns = `<div class="flex items-center gap-1 mt-1 flex-wrap">${editBtn}${exclBtn}</div>`;
         }
+
         const isExcl = item.status === 'excluded';
 
         return `
@@ -3547,7 +4120,7 @@
             <td class="py-2.5 px-3 font-mono text-slate-300">${item.opnsense_val || '<span class="text-slate-600">-</span>'}</td>
             <td class="py-2.5 px-3 font-mono text-sky-300">${item.ucg_val || '<span class="text-slate-600">-</span>'}</td>
             <td class="py-2.5 px-3 font-mono text-purple-300">${item.uos_val || '<span class="text-slate-600">-</span>'}</td>
-            <td class="py-2.5 px-3">${badge}<div>${exclBtn}</div></td>
+            <td class="py-2.5 px-3">${badge}${actionBtns}</td>
             <td class="py-2.5 px-3 text-slate-400 text-xs">${escapeHtml(item.explanation)}${remapBtn}</td>
           </tr>
         `;

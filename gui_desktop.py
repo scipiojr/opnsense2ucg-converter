@@ -269,14 +269,18 @@ class DesktopMigratorApp(tk.Tk):
 
         # Update stats
         omitted_count = len(self.opn_cfg.omitted_items)
+        dyndns_count = len(getattr(self.opn_cfg, "dynamic_dns", []))
+        routes_count = len(getattr(self.opn_cfg, "static_routes", []))
+        dns_fwd_count = len(getattr(self.opn_cfg, "dns_domain_overrides", []))
         self.stats_lbl.config(
             text=(
                 f"OPNsense Version: {self.opn_cfg.version} | "
-                f"Interfaces/VLANs: {len(self.opn_cfg.interfaces)} | "
-                f"Feste DHCP-Leases: {len(self.opn_cfg.static_leases)} | "
-                f"Aliase: {len(self.opn_cfg.aliases)} | "
-                f"NAT Forwards: {len(self.opn_cfg.port_forwards)} | "
-                f"Filter-Regeln: {len(self.opn_cfg.filter_rules)} | "
+                f"VLANs: {len(self.opn_cfg.interfaces)} | "
+                f"DHCP: {len(self.opn_cfg.static_leases)} | "
+                f"Regeln: {len(self.opn_cfg.filter_rules)} | "
+                f"DynDNS: {dyndns_count} | "
+                f"Routen: {routes_count} | "
+                f"Split-DNS: {dns_fwd_count} | "
                 f"Nicht migriert: {omitted_count}"
             )
         )
@@ -290,6 +294,15 @@ class DesktopMigratorApp(tk.Tk):
 
         for l in self.opn_cfg.static_leases:
             self.tree.insert("", tk.END, values=("DHCP Lease", l.hostname, l.ipaddr, f"MAC: {l.mac} ({l.descr})"))
+
+        for d in getattr(self.opn_cfg, "dynamic_dns", []):
+            self.tree.insert("", tk.END, values=("DynDNS", d.host_name, d.service, f"Interface: {d.interface}"))
+
+        for r in getattr(self.opn_cfg, "static_routes", []):
+            self.tree.insert("", tk.END, values=("Statische Route", r.descr or r.network, r.network, f"Gateway: {r.gateway}"))
+
+        for fwd in getattr(self.opn_cfg, "dns_domain_overrides", []):
+            self.tree.insert("", tk.END, values=("Split-DNS", fwd.domain, fwd.ip, "Domain Override (Forwarding)"))
 
         for r in self.opn_cfg.filter_rules:
             self.tree.insert("", tk.END, values=("Firewall-Regel", r.descr or r.id, f"{r.interface} ({r.action.upper()})", f"{r.src} -> {r.dst}:{r.dst_port}"))

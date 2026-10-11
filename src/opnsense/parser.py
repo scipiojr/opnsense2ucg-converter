@@ -17,6 +17,15 @@ from src.models import (
     OPNsenseNptv6,
     OPNsenseFilterRule,
     OPNsenseDnsHost,
+    OPNsenseDnsDomainOverride,
+    OPNsenseDynDns,
+    OPNsenseStaticRoute,
+    OPNsenseGatewayGroup,
+    OPNsenseSystemNtp,
+    OPNsenseSyslog,
+    OPNsenseSnmp,
+    OPNsenseMdns,
+    OPNsenseUpnp,
     OPNsenseWireGuard,
     OPNsenseTrafficShaper,
     OPNsenseModemManagement,
@@ -66,6 +75,15 @@ class OPNsenseParser:
 
         # 7. Parse Advanced Extended Services (DNS Overrides, WireGuard, QoS)
         config.dns_hosts = self._parse_dns_hosts()
+        config.dns_domain_overrides = self._parse_dns_domain_overrides()
+        config.dynamic_dns = self._parse_dyndns()
+        config.static_routes = self._parse_static_routes()
+        config.gateway_groups = self._parse_gateway_groups()
+        config.system_ntp = self._parse_system_ntp()
+        config.syslog = self._parse_syslog()
+        config.snmp = self._parse_snmp()
+        config.multicast = self._parse_multicast()
+        config.upnp = self._parse_upnp()
         config.wireguard_servers = self._parse_wireguard()
         config.traffic_shaper = self._parse_traffic_shaper()
 
@@ -677,6 +695,151 @@ class OPNsenseParser:
                 dns_hosts.append(OPNsenseDnsHost(host=host, domain=domain, ip=ip, descr=descr))
         return dns_hosts
 
+    def _parse_dns_domain_overrides(self) -> List[OPNsenseDnsDomainOverride]:
+        overrides: List[OPNsenseDnsDomainOverride] = []
+        for d_node in self.root.findall(".//unbound/domainoverrides"):
+            domain = self._get_text(d_node, "domain")
+            ip = self._get_text(d_node, "ip")
+            descr = self._get_text(d_node, "descr")
+            if domain and ip:
+                overrides.append(OPNsenseDnsDomainOverride(domain=domain, ip=ip, descr=descr))
+        return overrides
+
+    def _parse_dyndns(self) -> List[OPNsenseDynDns]:
+        dyndns_list: List[OPNsenseDynDns] = []
+        # Check modern os-ddclient: <ddclient><accounts><account> or <ddclient><service>
+        for acc in self.root.findall(".//ddclient/accounts/account"):
+            service = self._get_text(acc, "service") or "custom"
+            host = self._get_text(acc, "host") or self._get_text(acc, "hostname")
+            username = self._get_text(acc, "username") or self._get_text(acc, "login")
+            password = self._get_text(acc, "password")
+            iface = self._get_text(acc, "interface") or "wan"
+            server = self._get_text(acc, "server")
+            descr = self._get_text(acc, "description") or self._get_text(acc, "descr")
+            enabled = self._get_text(acc, "enabled") != "0" and acc.find("enabled") is not None
+            if host:
+                dyndns_list.append(OPNsenseDynDns(
+                    service=service, host=host, username=username, password=password,
+                    interface=iface, server=server, descr=descr, enabled=enabled
+                ))
+        
+        # Check legacy <dyndns>
+        for dyn in self.root.findall(".//dyndns"):
+            items = dyn.findall("item") or ([dyn] if self._get_text(dyn, "host") else [])
+            for item in items:
+                host = self._get_text(item, "host")
+                if not host:
+                    continue
+                service = self._get_text(item, "type") or "custom"
+                username = self._get_text(item, "username")
+                password = self._get_text(item, "password")
+                iface = self._get_text(item, "interface") or "wan"
+                server = self._get_text(item, "server")
+                mx = self._get_text(item, "mx")
+                descr = self._get_text(item, "descr")
+                enabled = self._get_text(item, "enable") != "0"
+                dyndns_list.append(OPNsenseDynDns(
+                    service=service, host=host, username=username, password=password,
+                    interface=iface, server=server, mx=mx, descr=descr, enabled=enabled
+                ))
+        return dyndns_list
+
+    def _parse_static_routes(self) -> List[OPNsenseStaticRoute]:
+        routes: List[OPNsenseStaticRoute] = []
+        for r_node in self.root.findall(".//staticroutes/route"):
+            network = self._get_text(r_node, "network")
+            gateway = self._get_text(r_node, "gateway")
+            descr = self._get_text(r_node, "descr")
+            disabled = self._get_text(r_node, "disabled") in ("1", "yes", "true")
+            if network and gateway:
+                routes.append(OPNsenseStaticRoute(
+                    network=network, gateway=gateway, descr=descr, enabled=not disabled
+                ))
+        return routes
+
+    def _parse_gateway_groups(self) -> List[OPNsenseGatewayGroup]:
+        groups: List[OPNsenseGatewayGroup] = []
+        for gg in self.root.findall(".//gateways/gateway_group"):
+            name = self._get_text(gg, "name")
+            if not name:
+                continue
+            trigger = self._get_text(gg, "trigger") or "down"
+            descr = self._get_text(gg, "descr")
+            members: List[Dict[str, Any]] = []
+            for item in gg.findall("item"):
+                text = (item.text or "").strip()
+                if "|" in text:
+                    gw_name, tier_str = text.split("|", 1)
+                    tier = int(tier_str) if tier_str.isdigit() else 1
+                    members.append({"gateway": gw_name, "tier": tier, "weight": 1})
+            groups.append(OPNsenseGatewayGroup(name=name, members=members, trigger=trigger, descr=descr))
+        return groups
+
+    def _parse_system_ntp(self) -> OPNsenseSystemNtp:
+        ts_node = self.root.find(".//system")
+        ts_text = self._get_text(ts_node, "timeservers") if ts_node is not None else ""
+        servers = ts_text.split() if ts_text else ["0.opnsense.pool.ntp.org", "1.opnsense.pool.ntp.org"]
+        
+        ntp_node = self.root.find(".//ntpd")
+        ifaces: List[str] = []
+        if ntp_node is not None:
+            if_text = self._get_text(ntp_node, "interface")
+            if if_text:
+                ifaces = [s.strip() for s in if_text.split(",") if s.strip()]
+        
+        dhcp_ntp: Dict[str, List[str]] = {}
+        dhcpd_node = self.root.find("dhcpd")
+        if dhcpd_node is not None:
+            for child in dhcpd_node:
+                ntp_s = self._get_text(child, "ntpserver")
+                if ntp_s:
+                    dhcp_ntp[child.tag] = [s.strip() for s in ntp_s.split(",") if s.strip()]
+        
+        return OPNsenseSystemNtp(timeservers=servers, interfaces=ifaces, dhcp_ntp_servers=dhcp_ntp)
+
+    def _parse_syslog(self) -> Optional[OPNsenseSyslog]:
+        syslog_node = self.root.find(".//syslog")
+        if syslog_node is not None:
+            server = self._get_text(syslog_node, "remoteserver") or self._get_text(syslog_node, "remote")
+            if server:
+                port_str = self._get_text(syslog_node, "remoteserverport") or "514"
+                port = int(port_str) if port_str.isdigit() else 514
+                proto = self._get_text(syslog_node, "proto") or "udp"
+                return OPNsenseSyslog(server=server, port=port, protocol=proto, enabled=True)
+        return None
+
+    def _parse_snmp(self) -> Optional[OPNsenseSnmp]:
+        snmp_node = self.root.find(".//snmpd")
+        if snmp_node is not None:
+            enable = self._get_text(snmp_node, "enable") != "0" and snmp_node.find("enable") is not None
+            comm = self._get_text(snmp_node, "community") or "public"
+            contact = self._get_text(snmp_node, "contact")
+            loc = self._get_text(snmp_node, "location")
+            return OPNsenseSnmp(community=comm, contact=contact, location=loc, enabled=enable)
+        return None
+
+    def _parse_multicast(self) -> Optional[OPNsenseMdns]:
+        node1 = self.root.find(".//mdnsrepeater")
+        mdns_node = node1 if node1 is not None else self.root.find(".//mdns")
+        has_pkg = any("mdns" in (p.findtext("name") or "").lower() for p in self.root.findall(".//installedpackages/package"))
+        if mdns_node is not None or has_pkg or self.root.find(".//igmpproxy") is not None:
+            ifaces: List[str] = []
+            if mdns_node is not None:
+                ifaces = [s.strip() for s in (self._get_text(mdns_node, "interface") or "").split(",") if s.strip()]
+            return OPNsenseMdns(enabled=True, interfaces=ifaces)
+        return None
+
+    def _parse_upnp(self) -> Optional[OPNsenseUpnp]:
+        node1 = self.root.find(".//miniupnpd")
+        upnp_node = node1 if node1 is not None else self.root.find(".//upnp")
+        has_pkg = any("upnp" in (p.findtext("name") or "").lower() for p in self.root.findall(".//installedpackages/package"))
+        if upnp_node is not None or has_pkg:
+            enable = True
+            if upnp_node is not None:
+                enable = self._get_text(upnp_node, "enable") != "0"
+            return OPNsenseUpnp(enabled=enable)
+        return None
+
     def _parse_wireguard(self) -> List[OPNsenseWireGuard]:
         wg_list: List[OPNsenseWireGuard] = []
         for s_node in self.root.findall(".//wireguard/server"):
@@ -840,6 +1003,36 @@ class OPNsenseParser:
                         severity="info",
                     )
                 )
+
+        # 7. Web Proxy & Reverse Proxy (Squid & HAProxy / Nginx / Caddy)
+        if self.root.find(".//proxy") is not None:
+            omitted.append(
+                OmittedItem(
+                    category="Proxy",
+                    name="Forward Web-Proxy (Squid Caching & Filtering)",
+                    reason="UniFi Gateways betreiben keinen HTTP/HTTPS Caching-Proxy (Squid) mit SSL-Inspection.",
+                    recommendation=(
+                        "Aktivieren Sie in UniFi unter 'Settings > Security > CyberSecure' die Funktionen 'Ad Blocking' und 'Content Filtering' (Work/Family). "
+                        "Für Antivirus und Deep Packet Inspection aktivieren Sie 'Suspicious Activity' (Suricata IDS/IPS)."
+                    ),
+                    severity="info",
+                )
+            )
+
+        if self.root.find(".//haproxy") is not None or any(p in self.raw_xml for p in ("os-haproxy", "os-nginx", "os-caddy", "<haproxy>")):
+            omitted.append(
+                OmittedItem(
+                    category="Proxy / Reverse-Proxy",
+                    name="Application Reverse Proxy (HAProxy / Nginx / Caddy)",
+                    reason="Das UCG-Max ist ein L3/L4/L7-Netzwerk-Gateway, kein anwendungsspezifischer Reverse Proxy mit SNI-Terminierung.",
+                    recommendation=(
+                        "Richten Sie einen internen Reverse Proxy Host (z.B. Nginx Proxy Manager, Traefik, HAProxy VM oder Cloudflare Tunnel) ein. "
+                        "Legen Sie unter Port-Forwarding eine Weiterleitung von WAN Port 80 und 443 auf die interne IP Ihres Reverse Proxy Hosts an. "
+                        "Für direkten Admin-Fernzugriff ohne offene Ports empfiehlt sich UniFi Teleport (Zero-Config WireGuard)."
+                    ),
+                    severity="action_required",
+                )
+            )
 
         return omitted
 

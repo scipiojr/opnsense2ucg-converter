@@ -135,6 +135,19 @@ class VlanRemapper:
                 final_net.gateway_cidr = target_cidr
             if target_name:
                 final_net.name = target_name
+            if source_net.dhcp_enabled:
+                final_net.dhcp_enabled = True
+                final_net.dhcp_start = source_net.dhcp_start or final_net.dhcp_start
+                final_net.dhcp_stop = source_net.dhcp_stop or final_net.dhcp_stop
+                final_net.dns_servers = source_net.dns_servers or final_net.dns_servers
+            if actual_source_cidr != actual_target_cidr:
+                try:
+                    tgt_net = ipaddress.ip_network(actual_target_cidr, strict=False)
+                    tgt_prefix = f"{tgt_net.network_address}".rsplit(".", 1)[0]
+                    final_net.dhcp_start = f"{tgt_prefix}.10"
+                    final_net.dhcp_stop = f"{tgt_prefix}.250"
+                except Exception:
+                    pass
             # Remove redundant source network
             unifi_cfg.networks.remove(source_net)
             result["details"].append(f"VLAN {source_vlan} mit bestehendem Ziel-Netzwerk '{final_net.name}' (VLAN {target_vlan}) zusammengeführt.")
@@ -184,23 +197,25 @@ class VlanRemapper:
                     result["details"].append(f"WLAN SSID '{wlan.name}' auf VLAN {target_vlan} umgehängt.")
 
         # 5. Remap Firewall Rules
-        if remap_rules and actual_source_cidr and actual_target_cidr and actual_source_cidr != actual_target_cidr:
+        if remap_rules:
+            cidr_changed = bool(actual_source_cidr and actual_target_cidr and actual_source_cidr != actual_target_cidr)
             for r in getattr(unifi_cfg, "firewall_rules", []):
                 rule_changed = False
-                if r.src_address:
-                    new_src = remap_ip_address(r.src_address, actual_source_cidr, actual_target_cidr)
-                    if new_src != r.src_address:
-                        r.src_address = new_src
-                        rule_changed = True
+                if cidr_changed:
+                    if r.src_address:
+                        new_src = remap_ip_address(r.src_address, actual_source_cidr, actual_target_cidr)
+                        if new_src != r.src_address:
+                            r.src_address = new_src
+                            rule_changed = True
 
-                if r.dst_address:
-                    new_dst = remap_ip_address(r.dst_address, actual_source_cidr, actual_target_cidr)
-                    if new_dst != r.dst_address:
-                        r.dst_address = new_dst
-                        rule_changed = True
+                    if r.dst_address:
+                        new_dst = remap_ip_address(r.dst_address, actual_source_cidr, actual_target_cidr)
+                        if new_dst != r.dst_address:
+                            r.dst_address = new_dst
+                            rule_changed = True
 
                 # Check description/name references
-                if f"VLAN {source_vlan}" in r.name:
+                if source_vlan != target_vlan and f"VLAN {source_vlan}" in r.name:
                     r.name = r.name.replace(f"VLAN {source_vlan}", f"VLAN {target_vlan}")
                     rule_changed = True
 

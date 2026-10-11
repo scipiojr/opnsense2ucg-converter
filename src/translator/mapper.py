@@ -23,6 +23,15 @@ from src.models import (
     UniFiPortForward,
     UniFiNatRule,
     UniFiDnsRecord,
+    UniFiDnsForwarding,
+    UniFiDynDns,
+    UniFiStaticRoute,
+    UniFiMultiWan,
+    UniFiNtpSetting,
+    UniFiSyslog,
+    UniFiSnmp,
+    UniFiMulticast,
+    UniFiUpnp,
     UniFiTrafficRoute,
     UniFiTrafficRule,
     UniFiWireGuardServer,
@@ -60,6 +69,15 @@ class UniFiMapper:
 
         # 6. Map Extended Services (DNS Records, Traffic Rules, WireGuard, Smart Queues)
         target.dns_records = self.map_dns_records()
+        target.dns_forwardings = self.map_dns_forwardings()
+        target.dynamic_dns = self.map_dyndns()
+        target.static_routes = self.map_static_routes()
+        target.multi_wan = self.map_multi_wan()
+        target.ntp_settings = self.map_ntp_settings()
+        target.syslog_settings = self.map_syslog()
+        target.snmp_settings = self.map_snmp()
+        target.multicast_settings = self.map_multicast()
+        target.upnp_settings = self.map_upnp()
         target.traffic_rules = self.map_traffic_rules()
         target.wireguard_servers = self.map_wireguard()
         target.smart_queue = self.map_smart_queue()
@@ -668,3 +686,108 @@ class UniFiMapper:
             )
 
         return modem_net
+
+    def map_dns_forwardings(self) -> List[UniFiDnsForwarding]:
+        forwardings: List[UniFiDnsForwarding] = []
+        for o in getattr(self.cfg, "dns_domain_overrides", []):
+            forwardings.append(UniFiDnsForwarding(domain=o.domain, forward_to_ip=o.ip, enabled=True))
+        return forwardings
+
+    def map_dyndns(self) -> List[UniFiDynDns]:
+        dyndns_targets: List[UniFiDynDns] = []
+        # Service normalizer for UniFi Network
+        service_map = {
+            "dyndns": "dyndns",
+            "dyndns2": "dyndns",
+            "cloudflare": "cloudflare",
+            "strato": "strato",
+            "duckdns": "duckdns",
+            "noip": "noip",
+            "freedns": "freedns",
+            "namecheap": "namecheap",
+            "ovh": "ovh",
+            "he": "he",
+        }
+        for d in getattr(self.cfg, "dynamic_dns", []):
+            srv_lower = d.service.lower()
+            unifi_srv = service_map.get(srv_lower, "custom")
+            iface_str = "WAN2" if "opt" in d.interface.lower() or "wan2" in d.interface.lower() else "WAN"
+            dyndns_targets.append(
+                UniFiDynDns(
+                    service=unifi_srv,
+                    host_name=d.host,
+                    login=d.username,
+                    password=d.password,
+                    interface=iface_str,
+                    server=d.server,
+                    enabled=d.enabled,
+                    description=d.descr or f"DynDNS ({unifi_srv})",
+                )
+            )
+        return dyndns_targets
+
+    def map_static_routes(self) -> List[UniFiStaticRoute]:
+        routes: List[UniFiStaticRoute] = []
+        for idx, r in enumerate(getattr(self.cfg, "static_routes", [])):
+            name = r.descr or f"Route_{idx+1}_{r.network.replace('/', '_')}"
+            routes.append(
+                UniFiStaticRoute(
+                    name=name,
+                    network=r.network,
+                    next_hop=r.gateway,
+                    distance=1,
+                    enabled=r.enabled,
+                )
+            )
+        return routes
+
+    def map_multi_wan(self) -> Optional[UniFiMultiWan]:
+        groups = getattr(self.cfg, "gateway_groups", [])
+        if not groups:
+            return None
+        # Check first active group
+        primary_group = groups[0]
+        tiers = [m.get("tier", 1) for m in primary_group.members]
+        # If all tiers are 1 -> Distributed Load Balancing; else Failover
+        is_distributed = len(tiers) > 1 and len(set(tiers)) == 1
+        return UniFiMultiWan(
+            mode="distributed" if is_distributed else "failover",
+            load_balance_percentage=50 if is_distributed else 0,
+            wan1_echo_server="1.1.1.1",
+            wan2_echo_server="8.8.8.8",
+            wan2_port="Port 4",
+        )
+
+    def map_ntp_settings(self) -> Optional[UniFiNtpSetting]:
+        ntp = getattr(self.cfg, "system_ntp", None)
+        if not ntp:
+            return None
+        return UniFiNtpSetting(
+            upstream_servers=ntp.timeservers or ["0.pool.ntp.org", "1.pool.ntp.org"],
+            dhcp_option42_enabled=True,
+        )
+
+    def map_syslog(self) -> Optional[UniFiSyslog]:
+        sl = getattr(self.cfg, "syslog", None)
+        if not sl or not sl.enabled:
+            return None
+        return UniFiSyslog(enabled=sl.enabled, server=sl.server, port=sl.port)
+
+    def map_snmp(self) -> Optional[UniFiSnmp]:
+        sn = getattr(self.cfg, "snmp", None)
+        if not sn or not sn.enabled:
+            return None
+        return UniFiSnmp(enabled=sn.enabled, community=sn.community)
+
+    def map_multicast(self) -> Optional[UniFiMulticast]:
+        mc = getattr(self.cfg, "multicast", None)
+        if not mc or not mc.enabled:
+            return None
+        return UniFiMulticast(mdns_enabled=True, igmp_snooping_enabled=True)
+
+    def map_upnp(self) -> Optional[UniFiUpnp]:
+        up = getattr(self.cfg, "upnp", None)
+        if not up or not up.enabled:
+            return None
+        return UniFiUpnp(enabled=up.enabled, wan_interface="WAN")
+

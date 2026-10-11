@@ -24,6 +24,9 @@ from src.translator.exclusions import (
     client_item_id,
     client_name_item_id,
     device_item_id,
+    dyndns_item_id,
+    route_item_id,
+    dns_fwd_item_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,6 +96,10 @@ class MultiSourceMerger:
 
         if self.ucg_state and self.ucg_state.networks:
             for net in self.ucg_state.networks:
+                purpose = str(net.get("purpose", "corporate")).lower()
+                name_l = str(net.get("name", "")).lower()
+                if purpose in ["wan", "vpn", "remote-user-vpn"] or "wireguard" in name_l or "roadworrior" in name_l:
+                    continue
                 vlan = net.get("vlan", 1) or net.get("vlan_id", 1)
                 name = net.get("name", "")
                 existing_ucg_nets_by_vlan[int(vlan)] = net
@@ -178,6 +185,10 @@ class MultiSourceMerger:
         if self.ucg_state and self.ucg_state.networks:
             planned_vlans = {n.vlan_id for n in self.target.networks} | covered_ucg_vlans
             for net in self.ucg_state.networks:
+                purpose = str(net.get("purpose", "corporate")).lower()
+                name_l = str(net.get("name", "")).lower()
+                if purpose in ["wan", "vpn", "remote-user-vpn"] or "wireguard" in name_l or "roadworrior" in name_l:
+                    continue
                 vlan = int(net.get("vlan", 1) or net.get("vlan_id", 1))
                 if vlan not in planned_vlans and net.get("name") not in ["Default", "default"]:
                     cidr = net.get("ip_subnet", "") or net.get("gateway_ip", "")
@@ -328,6 +339,160 @@ class MultiSourceMerger:
                     )
                 )
                 summary["devices_mapped"] += 1
+
+        # ---------------------------------------------------------------------
+        # 5. Dynamic DNS (DynDNS)
+        # ---------------------------------------------------------------------
+        for dyn in getattr(self.target, "dynamic_dns", []):
+            items.append(
+                ReconciliationItem(
+                    category="dyndns",
+                    item_id=dyndns_item_id(dyn.host_name),
+                    key=f"DynDNS {dyn.host_name}",
+                    opnsense_val=f"{dyn.service.upper()} ({dyn.host_name}) auf {dyn.interface}",
+                    ucg_val=None,
+                    uos_val=None,
+                    status="create",
+                    action="create_dyndns",
+                    explanation=f"Dynamic DNS für '{dyn.host_name}' ({dyn.service}) wird auf dem UCG-Max neu angelegt.",
+                )
+            )
+
+        # ---------------------------------------------------------------------
+        # 6. Static Routes
+        # ---------------------------------------------------------------------
+        for r in getattr(self.target, "static_routes", []):
+            items.append(
+                ReconciliationItem(
+                    category="route",
+                    item_id=route_item_id(r.network),
+                    key=f"Route {r.network}",
+                    opnsense_val=f"Ziel {r.network} via {r.next_hop}",
+                    ucg_val=None,
+                    uos_val=None,
+                    status="create",
+                    action="create_static_route",
+                    explanation=f"Statische Route '{r.network}' mit Next-Hop {r.next_hop} wird auf dem UCG-Max angelegt.",
+                )
+            )
+
+        # ---------------------------------------------------------------------
+        # 7. DNS Forwarding / Domain Overrides
+        # ---------------------------------------------------------------------
+        for df in getattr(self.target, "dns_forwardings", []):
+            items.append(
+                ReconciliationItem(
+                    category="dns_fwd",
+                    item_id=dns_fwd_item_id(df.domain),
+                    key=f"DNS Forward {df.domain}",
+                    opnsense_val=f"Domäne {df.domain} ➔ {df.forward_to_ip}",
+                    ucg_val=None,
+                    uos_val=None,
+                    status="create",
+                    action="create_dns_forwarding",
+                    explanation=f"Bedingte DNS-Weiterleitung für '{df.domain}' an internen DNS {df.forward_to_ip}.",
+                )
+            )
+
+        # ---------------------------------------------------------------------
+        # 8. Multi-WAN / Gateway Groups
+        # ---------------------------------------------------------------------
+        if getattr(self.target, "multi_wan", None):
+            mw = self.target.multi_wan
+            items.append(
+                ReconciliationItem(
+                    category="multi_wan",
+                    item_id="multi_wan:config",
+                    key="Multi-WAN Modus",
+                    opnsense_val="Gateway-Gruppe aus OPNsense",
+                    ucg_val=None,
+                    uos_val=None,
+                    status="create",
+                    action="configure_multi_wan",
+                    explanation=f"Multi-WAN Modus: {mw.mode.upper()} ({mw.wan2_port} als WAN2, Echo-Server: {mw.wan1_echo_server}).",
+                )
+            )
+
+        # ---------------------------------------------------------------------
+        # 9. System & Zeitserver (NTP, Syslog, SNMP)
+        # ---------------------------------------------------------------------
+        if getattr(self.target, "ntp_settings", None):
+            ntp = self.target.ntp_settings
+            items.append(
+                ReconciliationItem(
+                    category="system",
+                    item_id="system:ntp",
+                    key="Zeitserver (NTP)",
+                    opnsense_val=", ".join(ntp.upstream_servers),
+                    ucg_val=None,
+                    uos_val=None,
+                    status="aligned",
+                    action="configure_ntp",
+                    explanation=f"Upstream NTP-Server ({', '.join(ntp.upstream_servers)}) und DHCP Option 42 für VLANs.",
+                )
+            )
+        if getattr(self.target, "syslog_settings", None) and self.target.syslog_settings.enabled:
+            sl = self.target.syslog_settings
+            items.append(
+                ReconciliationItem(
+                    category="system",
+                    item_id="system:syslog",
+                    key="Remote Syslog",
+                    opnsense_val=f"{sl.server}:{sl.port}",
+                    ucg_val=None,
+                    uos_val=None,
+                    status="create",
+                    action="configure_syslog",
+                    explanation=f"Zentraler Syslog-Server {sl.server}:{sl.port} wird für alle Gateway-Events eingerichtet.",
+                )
+            )
+        if getattr(self.target, "snmp_settings", None) and self.target.snmp_settings.enabled:
+            sn = self.target.snmp_settings
+            items.append(
+                ReconciliationItem(
+                    category="system",
+                    item_id="system:snmp",
+                    key="SNMP Monitoring",
+                    opnsense_val=f"Community: {sn.community}",
+                    ucg_val=None,
+                    uos_val=None,
+                    status="create",
+                    action="configure_snmp",
+                    explanation=f"SNMPv2c Monitoring mit Community-String '{sn.community}' wird aktiviert.",
+                )
+            )
+
+        # ---------------------------------------------------------------------
+        # 10. Dienste & Multicast (mDNS, UPnP)
+        # ---------------------------------------------------------------------
+        if getattr(self.target, "multicast_settings", None):
+            items.append(
+                ReconciliationItem(
+                    category="services",
+                    item_id="services:multicast",
+                    key="Multicast & mDNS",
+                    opnsense_val="mDNS Repeater / IGMP Proxy",
+                    ucg_val=None,
+                    uos_val=None,
+                    status="aligned",
+                    action="configure_multicast",
+                    explanation="Multicast DNS (mDNS) und IGMP Snooping netzwerkweit für IoT-Casting (Sonos, AirPlay) aktiviert.",
+                )
+            )
+        if getattr(self.target, "upnp_settings", None) and self.target.upnp_settings.enabled:
+            items.append(
+                ReconciliationItem(
+                    category="services",
+                    item_id="services:upnp",
+                    key="UPnP Gateway-Dienst",
+                    opnsense_val="miniupnpd aktiv",
+                    ucg_val=None,
+                    uos_val=None,
+                    status="create",
+                    action="configure_upnp",
+                    explanation="UPnP für automatische Portfreigaben (Gaming / Konsolen) auf WAN aktiviert.",
+                )
+            )
 
         summary["excluded"] = self._mark_exclusions(items)
 

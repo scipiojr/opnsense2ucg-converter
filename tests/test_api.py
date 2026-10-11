@@ -805,6 +805,88 @@ def test_migration_exclusions_api():
     print("SUCCESS: Migration exclusion API (impact, exclude, export, re-merge, undo) tests passed cleanly!")
 
 
+def test_edit_item_and_bulk_resolve_api():
+    from src.gui.app import edit_item_api, bulk_resolve_api, unify_all_api
+    from src.models import UniFiSourceState
+
+    class MockRequest:
+        def __init__(self, json_data=None):
+            self._json = json_data or {}
+
+        async def json(self):
+            return self._json
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    run = lambda coro: json.loads(loop.run_until_complete(coro).body.decode("utf-8"))
+
+    state.reset()
+    sample_path = os.path.join(os.path.dirname(__file__), "..", "examples", "sample_opnsense_26_7_5.xml")
+    with open(sample_path, "r", encoding="utf-8") as f:
+        loop.run_until_complete(process_xml(f.read()))
+
+    # Verify initial dynamic_dns and static_routes loaded
+    assert len(state.unifi_cfg.dynamic_dns) > 0
+    assert len(state.unifi_cfg.static_routes) > 0
+
+    # 1. Test edit_item_api on DynDNS
+    ddns_res = run(edit_item_api(MockRequest({
+        "category": "dyndns",
+        "item_id": "dyndns:remote.home.arpa",
+        "updates": {
+            "service": "strato",
+            "host_name": "home.strato-domain.de",
+            "login": "strato-user-123"
+        }
+    })))
+    assert ddns_res["success"] is True
+    found_ddns = [d for d in state.unifi_cfg.dynamic_dns if d.host_name == "home.strato-domain.de"]
+    assert len(found_ddns) == 1
+    assert found_ddns[0].service == "strato"
+    assert found_ddns[0].login == "strato-user-123"
+
+    # 2. Test edit_item_api on Static Route
+    route_res = run(edit_item_api(MockRequest({
+        "category": "route",
+        "item_id": "route:10.200.0.0/16",
+        "updates": {
+            "name": "Updated Branch Route",
+            "next_hop": "192.168.1.250",
+            "distance": 3
+        }
+    })))
+    assert route_res["success"] is True
+    found_route = [r for r in state.unifi_cfg.static_routes if r.network == "10.200.0.0/16"]
+    assert len(found_route) == 1
+    assert found_route[0].name == "Updated Branch Route"
+    assert found_route[0].next_hop == "192.168.1.250"
+    assert found_route[0].distance == 3
+
+    # 3. Simulate conflicting UCG state and test bulk_resolve_api
+    ucg = UniFiSourceState(source_type="ucg_max")
+    ucg.networks = [{
+        "name": "CAMERAS",
+        "vlan": 30,
+        "ip_subnet": "10.99.30.1/24"  # Conflict with OPNsense 192.168.30.1/24
+    }]
+    state.ucg_state = ucg
+    run(unify_all_api(MockRequest()))
+
+    # Check if reconciliation items exist
+    assert state.reconciliation_report is not None
+    assert len(state.reconciliation_report.items) > 0
+    # Bulk resolve with opnsense_wins
+    bulk_res_opn = run(bulk_resolve_api(MockRequest({"strategy": "opnsense_wins"})))
+    assert bulk_res_opn["success"] is True
+    assert bulk_res_opn["resolved_count"] >= 1
+
+    # Bulk resolve with preserve_ucg
+    bulk_res_ucg = run(bulk_resolve_api(MockRequest({"strategy": "preserve_ucg"})))
+    assert bulk_res_ucg["success"] is True
+
+    print("SUCCESS: edit_item_api and bulk_resolve_api tests passed cleanly!")
+
+
 if __name__ == "__main__":
     test_core_flow()
     test_upload_export_and_unify_apis()
@@ -814,3 +896,5 @@ if __name__ == "__main__":
     test_opnsense_live_fetch()
     test_migration_exclusions_engine()
     test_migration_exclusions_api()
+    test_edit_item_and_bulk_resolve_api()
+

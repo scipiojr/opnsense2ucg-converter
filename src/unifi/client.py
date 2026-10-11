@@ -23,6 +23,8 @@ from src.models import (
     UniFiSourceState,
     UniFiWlan,
     UniFiDevice,
+    UniFiDynDns,
+    UniFiStaticRoute,
 )
 
 # Suppress self-signed certificate warnings for local gateway access
@@ -299,6 +301,33 @@ class UniFiGatewayClient:
                 {"name": wg.name, "port": wg.port, "tunnel": wg.tunnel_subnet}
                 for wg in getattr(target_config, "wireguard_servers", [])
             ],
+            "dynamic_dns_to_create": [
+                {"service": d.service, "host_name": d.host_name, "interface": d.interface}
+                for d in getattr(target_config, "dynamic_dns", [])
+                if getattr(d, "status", "accepted") != "excluded"
+            ],
+            "static_routes_to_create": [
+                {"name": r.name, "network": r.network, "next_hop": r.next_hop, "distance": r.distance}
+                for r in getattr(target_config, "static_routes", [])
+                if getattr(r, "status", "accepted") != "excluded"
+            ],
+            "dns_forwardings_to_create": [
+                {"domain": f.domain, "forward_to_ip": f.forward_to_ip}
+                for f in getattr(target_config, "dns_forwardings", [])
+                if getattr(f, "status", "accepted") != "excluded"
+            ],
+            "ntp_settings": (
+                {"upstream_servers": ntp.upstream_servers}
+                if (ntp := getattr(target_config, "ntp_settings", None)) else None
+            ),
+            "syslog_settings": (
+                {"server": sl.server, "port": sl.port, "enabled": sl.enabled}
+                if (sl := getattr(target_config, "syslog_settings", None)) else None
+            ),
+            "snmp_settings": (
+                {"community": sn.community, "enabled": sn.enabled}
+                if (sn := getattr(target_config, "snmp_settings", None)) else None
+            ),
             "smart_queue": (
                 {"enabled": sq.enabled, "down_kbps": sq.down_rate_kbps, "up_kbps": sq.up_rate_kbps}
                 if (sq := getattr(target_config, "smart_queue", None)) else None
@@ -458,6 +487,28 @@ class UniFiGatewayClient:
             except Exception as e:
                 results["errors"].append(f"Traffic Rule '{tr.name}' error: {str(e)}")
 
+        # Step 8: Create Dynamic DNS
+        results["created_dynamic_dns"] = 0
+        for ddns in getattr(target_config, "dynamic_dns", []):
+            if getattr(ddns, "status", "accepted") == "excluded":
+                continue
+            try:
+                self._create_dynamic_dns(ddns)
+                results["created_dynamic_dns"] += 1
+            except Exception as e:
+                results["errors"].append(f"Dynamic DNS '{ddns.host_name}' error: {str(e)}")
+
+        # Step 9: Create Static Routes
+        results["created_static_routes"] = 0
+        for r in getattr(target_config, "static_routes", []):
+            if getattr(r, "status", "accepted") == "excluded":
+                continue
+            try:
+                self._create_static_route(r)
+                results["created_static_routes"] += 1
+            except Exception as e:
+                results["errors"].append(f"Static Route '{r.name}' error: {str(e)}")
+
         return results
 
     def _create_dns_record(self, rec) -> str:
@@ -585,6 +636,38 @@ class UniFiGatewayClient:
         if network_id:
             payload["network_id"] = network_id
 
+        res = self.session.post(url, json=payload, timeout=10)
+        if res.status_code in [200, 201]:
+            data = res.json().get("data", [{}])[0]
+            return data.get("_id", "")
+        raise RuntimeError(f"HTTP {res.status_code}: {res.text}")
+
+    def _create_dynamic_dns(self, ddns: UniFiDynDns) -> str:
+        url = f"{self.api_prefix}/rest/dynamicdns"
+        payload = {
+            "service": ddns.service.lower(),
+            "host_name": ddns.host_name,
+            "login": ddns.login,
+            "x_password": ddns.password,
+            "interface": ddns.interface.lower(),
+            "server": ddns.server or "",
+        }
+        res = self.session.post(url, json=payload, timeout=10)
+        if res.status_code in [200, 201]:
+            data = res.json().get("data", [{}])[0]
+            return data.get("_id", "")
+        raise RuntimeError(f"HTTP {res.status_code}: {res.text}")
+
+    def _create_static_route(self, r: UniFiStaticRoute) -> str:
+        url = f"{self.api_prefix}/rest/routing"
+        payload = {
+            "description": r.name,
+            "static_route_network": r.network,
+            "static_route_next_hop": r.next_hop,
+            "static_route_distance": r.distance,
+            "type": "nexthop-route",
+            "enabled": r.enabled,
+        }
         res = self.session.post(url, json=payload, timeout=10)
         if res.status_code in [200, 201]:
             data = res.json().get("data", [{}])[0]

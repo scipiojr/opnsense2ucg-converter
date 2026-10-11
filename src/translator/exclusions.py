@@ -35,7 +35,11 @@ from src.translator.remapper import remap_ip_address
 
 logger = logging.getLogger(__name__)
 
-LIST_KEYS = ["networks", "fixed_ips", "wlans", "firewall_rules", "firewall_groups", "port_forwards", "nat_rules", "dns_records"]
+LIST_KEYS = [
+    "networks", "fixed_ips", "wlans", "firewall_rules", "firewall_groups",
+    "port_forwards", "nat_rules", "dns_records", "dns_forwardings",
+    "dynamic_dns", "static_routes"
+]
 
 STRATEGIES = {
     "network": ["cascade", "reassign"],
@@ -44,6 +48,10 @@ STRATEGIES = {
     "wlan": ["skip"],
     "device": ["skip"],
     "nat": ["skip"],
+    "dyndns": ["skip"],
+    "route": ["skip"],
+    "dns_fwd": ["skip"],
+    "rule": ["skip"],
 }
 
 
@@ -72,6 +80,22 @@ def device_item_id(mac: str) -> str:
 
 def nat_item_id(name: str) -> str:
     return f"nat:{name}"
+
+
+def dyndns_item_id(host: str) -> str:
+    return f"dyndns:{(host or '').lower()}"
+
+
+def route_item_id(net: str) -> str:
+    return f"route:{(net or '').lower()}"
+
+
+def dns_fwd_item_id(domain: str) -> str:
+    return f"dns_fwd:{(domain or '').lower()}"
+
+
+def rule_item_id(name_or_idx: Any) -> str:
+    return f"rule:{name_or_idx}"
 
 
 def parse_item_id(item_id: str) -> Tuple[str, str]:
@@ -173,7 +197,7 @@ class ExclusionEngine:
             return plan
 
         # Order matters: networks first (largest blast radius), then clients, then the rest
-        order = {"network": 0, "client": 1, "client_name": 2, "wlan": 3, "nat": 4, "device": 5}
+        order = {"network": 0, "client": 1, "client_name": 2, "wlan": 3, "nat": 4, "dyndns": 5, "route": 6, "dns_fwd": 7, "rule": 8, "device": 9}
         for excl in sorted(exclusions, key=lambda e: order.get(parse_item_id(e.get("item_id", ""))[0], 9)):
             kind, ref = parse_item_id(excl.get("item_id", ""))
             try:
@@ -187,6 +211,14 @@ class ExclusionEngine:
                     ExclusionEngine._plan_wlan(cfg, plan, excl, ref)
                 elif kind == "nat":
                     ExclusionEngine._plan_nat(cfg, plan, excl, ref)
+                elif kind == "dyndns":
+                    ExclusionEngine._plan_dyndns(cfg, plan, excl, ref)
+                elif kind == "route":
+                    ExclusionEngine._plan_route(cfg, plan, excl, ref)
+                elif kind == "dns_fwd":
+                    ExclusionEngine._plan_dns_fwd(cfg, plan, excl, ref)
+                elif kind == "rule":
+                    ExclusionEngine._plan_rule(cfg, plan, excl, ref)
                 elif kind == "device":
                     plan.devices_excluded.append(ref)
                     plan.consequence(excl["item_id"], "info",
@@ -385,6 +417,34 @@ class ExclusionEngine:
         if pf_idx is not None:
             plan.exclude("port_forwards", pf_idx, f"Port-Weiterleitung '{name}' wird nicht migriert.", src)
 
+    @staticmethod
+    def _plan_dyndns(cfg: UniFiTargetConfig, plan: ExclusionPlan, excl: Dict[str, Any], host: str):
+        src = excl["item_id"]
+        idx = next((i for i, d in enumerate(getattr(cfg, "dynamic_dns", [])) if (d.host_name or "").lower() == host.lower()), None)
+        if idx is not None:
+            plan.exclude("dynamic_dns", idx, f"DynDNS für '{host}' wird nicht migriert.", src)
+
+    @staticmethod
+    def _plan_route(cfg: UniFiTargetConfig, plan: ExclusionPlan, excl: Dict[str, Any], net: str):
+        src = excl["item_id"]
+        idx = next((i for i, r in enumerate(getattr(cfg, "static_routes", [])) if (r.network or "").lower() == net.lower()), None)
+        if idx is not None:
+            plan.exclude("static_routes", idx, f"Statische Route '{net}' wird nicht migriert.", src)
+
+    @staticmethod
+    def _plan_dns_fwd(cfg: UniFiTargetConfig, plan: ExclusionPlan, excl: Dict[str, Any], domain: str):
+        src = excl["item_id"]
+        idx = next((i for i, df in enumerate(getattr(cfg, "dns_forwardings", [])) if (df.domain or "").lower() == domain.lower()), None)
+        if idx is not None:
+            plan.exclude("dns_forwardings", idx, f"DNS-Forwarding für '{domain}' wird nicht migriert.", src)
+
+    @staticmethod
+    def _plan_rule(cfg: UniFiTargetConfig, plan: ExclusionPlan, excl: Dict[str, Any], rule_ref: str):
+        src = excl["item_id"]
+        idx = next((i for i, r in enumerate(getattr(cfg, "firewall_rules", [])) if str(r.rule_index) == str(rule_ref) or r.name == rule_ref), None)
+        if idx is not None:
+            plan.exclude("firewall_rules", idx, f"Firewall-Regel '{rule_ref}' wird nicht migriert.", src)
+
     # -----------------------------------------------------------------------
     # Applying
     # -----------------------------------------------------------------------
@@ -423,7 +483,11 @@ class ExclusionEngine:
             "firewall_rules": lambda o: f"#{o.rule_index} {o.name}",
             "firewall_groups": lambda o: f"{o.name} ({len(o.members)} Mitglieder)",
             "port_forwards": lambda o: f"{o.name}: {o.dst_port} ➔ {o.fwd_ip}:{o.fwd_port}",
+            "nat_rules": lambda o: f"{o.name} ({o.nat_type})",
             "dns_records": lambda o: f"{o.key} ➔ {o.value}",
+            "dns_forwardings": lambda o: f"{o.domain} ➔ {o.forward_to_ip}",
+            "dynamic_dns": lambda o: f"{o.host_name} ({o.service})",
+            "static_routes": lambda o: f"{o.name} ({o.network} via {o.next_hop})",
         }
         affected: Dict[str, List[Dict[str, Any]]] = {}
         for key in LIST_KEYS:

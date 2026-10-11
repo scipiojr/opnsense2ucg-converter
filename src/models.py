@@ -145,6 +145,79 @@ class OPNsenseDnsHost:
 
 
 @dataclass
+class OPNsenseDnsDomainOverride:
+    domain: str
+    ip: str
+    descr: str = ""
+
+
+@dataclass
+class OPNsenseDynDns:
+    service: str                    # e.g. "cloudflare", "strato", "duckdns", "dyndns", "custom"
+    host: str                       # e.g. "vpn.example.com"
+    username: str = ""
+    password: str = ""
+    interface: str = "wan"          # "wan", "opt1", etc.
+    server: str = ""                # custom server url if any
+    mx: str = ""
+    checkip: str = ""
+    descr: str = ""
+    enabled: bool = True
+
+
+@dataclass
+class OPNsenseStaticRoute:
+    network: str                    # e.g. "10.200.0.0/16"
+    gateway: str                    # e.g. "192.168.1.254" or gateway name
+    descr: str = ""
+    enabled: bool = True
+
+
+@dataclass
+class OPNsenseGatewayGroup:
+    name: str                       # e.g. "WAN_FAILOVER" or "WAN_LOADBALANCE"
+    members: List[Dict[str, Any]] = field(default_factory=list)  # [{"gateway": "WAN_DHCP", "tier": 1, "weight": 1}]
+    trigger: str = "down"           # "down", "loss", "latency", "lossordown"
+    descr: str = ""
+
+
+@dataclass
+class OPNsenseSystemNtp:
+    timeservers: List[str] = field(default_factory=list)  # ["0.opnsense.pool.ntp.org", "ptbtime1.ptb.de"]
+    interfaces: List[str] = field(default_factory=list)   # listening interfaces
+    dhcp_ntp_servers: Dict[str, List[str]] = field(default_factory=dict) # iface_id -> [ntp_ip]
+
+
+@dataclass
+class OPNsenseSyslog:
+    server: str = ""                # remote syslog server IP/hostname
+    port: int = 514
+    protocol: str = "udp"           # "udp" or "tls"
+    enabled: bool = False
+
+
+@dataclass
+class OPNsenseSnmp:
+    community: str = "public"
+    contact: str = ""
+    location: str = ""
+    enabled: bool = False
+
+
+@dataclass
+class OPNsenseMdns:
+    enabled: bool = False
+    interfaces: List[str] = field(default_factory=list)   # ["lan", "opt2"]
+
+
+@dataclass
+class OPNsenseUpnp:
+    enabled: bool = False
+    wan_interface: str = "wan"
+    lan_interfaces: List[str] = field(default_factory=list)
+
+
+@dataclass
 class OPNsenseWireGuard:
     name: str
     port: int = 51820
@@ -172,6 +245,15 @@ class OPNsenseConfig:
     nptv6_rules: List[OPNsenseNptv6] = field(default_factory=list)
     filter_rules: List[OPNsenseFilterRule] = field(default_factory=list)
     dns_hosts: List[OPNsenseDnsHost] = field(default_factory=list)
+    dns_domain_overrides: List[OPNsenseDnsDomainOverride] = field(default_factory=list)
+    dynamic_dns: List[OPNsenseDynDns] = field(default_factory=list)
+    static_routes: List[OPNsenseStaticRoute] = field(default_factory=list)
+    gateway_groups: List[OPNsenseGatewayGroup] = field(default_factory=list)
+    system_ntp: Optional[OPNsenseSystemNtp] = None
+    syslog: Optional[OPNsenseSyslog] = None
+    snmp: Optional[OPNsenseSnmp] = None
+    multicast: Optional[OPNsenseMdns] = None
+    upnp: Optional[OPNsenseUpnp] = None
     wireguard_servers: List[OPNsenseWireGuard] = field(default_factory=list)
     traffic_shaper: Optional[OPNsenseTrafficShaper] = None
     omitted_items: List[OmittedItem] = field(default_factory=list)
@@ -234,6 +316,7 @@ class UniFiNetwork:
     dhcp_stop: str = ""
     domain_name: str = "local"
     dns_servers: List[str] = field(default_factory=list)
+    is_management: bool = False
 
 
 @dataclass
@@ -362,6 +445,84 @@ class ReconciliationReport:
 
 
 @dataclass
+class UniFiDynDns:
+    service: str                    # "cloudflare", "dyndns", "strato", "duckdns", "custom", etc.
+    host_name: str                  # FQDN
+    login: str = ""
+    password: str = ""
+    interface: str = "WAN"          # "WAN" or "WAN2"
+    server: str = ""                # custom server
+    enabled: bool = True
+    description: str = ""
+    status: str = "accepted"        # "accepted", "excluded", "modified"
+
+
+@dataclass
+class UniFiStaticRoute:
+    name: str
+    network: str                    # CIDR destination
+    next_hop: str                   # Next-hop gateway IP
+    distance: int = 1               # Route metric
+    enabled: bool = True
+    status: str = "accepted"        # "accepted", "excluded"
+
+
+@dataclass
+class UniFiDnsForwarding:
+    domain: str                     # e.g. "corp.internal"
+    forward_to_ip: str              # DNS IP
+    enabled: bool = True
+    status: str = "accepted"
+
+
+@dataclass
+class UniFiMultiWan:
+    mode: str = "failover"          # "failover" or "distributed"
+    load_balance_percentage: int = 50 # if distributed, e.g. 50 (50/50)
+    wan1_echo_server: str = "1.1.1.1"
+    wan2_echo_server: str = "8.8.8.8"
+    wan2_port: str = "Port 4"       # UCG-Max remapped port
+    status: str = "accepted"
+
+
+@dataclass
+class UniFiNtpSetting:
+    upstream_servers: List[str] = field(default_factory=list)
+    dhcp_option42_enabled: bool = True
+    status: str = "accepted"
+
+
+@dataclass
+class UniFiSyslog:
+    enabled: bool = False
+    server: str = ""
+    port: int = 514
+    status: str = "accepted"
+
+
+@dataclass
+class UniFiSnmp:
+    enabled: bool = False
+    community: str = "public"
+    status: str = "accepted"
+
+
+@dataclass
+class UniFiMulticast:
+    mdns_enabled: bool = True
+    igmp_snooping_enabled: bool = True
+    status: str = "accepted"
+
+
+@dataclass
+class UniFiUpnp:
+    enabled: bool = False
+    wan_interface: str = "WAN"
+    lan_networks: List[str] = field(default_factory=list)
+    status: str = "accepted"
+
+
+@dataclass
 class UniFiTargetConfig:
     networks: List[UniFiNetwork] = field(default_factory=list)
     firewall_groups: List[UniFiFirewallGroup] = field(default_factory=list)
@@ -370,6 +531,15 @@ class UniFiTargetConfig:
     port_forwards: List[UniFiPortForward] = field(default_factory=list)
     nat_rules: List[UniFiNatRule] = field(default_factory=list)
     dns_records: List[UniFiDnsRecord] = field(default_factory=list)
+    dns_forwardings: List[UniFiDnsForwarding] = field(default_factory=list)
+    dynamic_dns: List[UniFiDynDns] = field(default_factory=list)
+    static_routes: List[UniFiStaticRoute] = field(default_factory=list)
+    multi_wan: Optional[UniFiMultiWan] = None
+    ntp_settings: Optional[UniFiNtpSetting] = None
+    syslog_settings: Optional[UniFiSyslog] = None
+    snmp_settings: Optional[UniFiSnmp] = None
+    multicast_settings: Optional[UniFiMulticast] = None
+    upnp_settings: Optional[UniFiUpnp] = None
     traffic_routes: List[UniFiTrafficRoute] = field(default_factory=list)
     traffic_rules: List[UniFiTrafficRule] = field(default_factory=list)
     wireguard_servers: List[UniFiWireGuardServer] = field(default_factory=list)
@@ -378,3 +548,4 @@ class UniFiTargetConfig:
     wlans: List[UniFiWlan] = field(default_factory=list)
     modem_management: Optional[OPNsenseModemManagement] = None
     reconciliation_report: Optional[ReconciliationReport] = None
+

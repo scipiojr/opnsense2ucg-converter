@@ -5,6 +5,7 @@
   <system>
     <hostname>OPNsense-Core</hostname>
     <domain>home.arpa</domain>
+    <timeservers>0.de.pool.ntp.org 1.de.pool.ntp.org ptbtime1.ptb.de</timeservers>
     <user>
       <name>root</name>
       <password>$2y$10$e8q4mQWd4Y35vGZ7b8hLDe90jKLmNOPqrSTuvWXyz1234567890ab</password>
@@ -212,7 +213,56 @@
       <ip>192.168.1.50</ip>
       <descr>Static DNS override for office printer</descr>
     </hosts>
+    <domainoverrides>
+      <domain>corp.internal</domain>
+      <ip>192.168.10.2</ip>
+      <descr>Branch AD Domain Controller</descr>
+    </domainoverrides>
   </unbound>
+  <ddclient>
+    <accounts>
+      <account>
+        <service>cloudflare</service>
+        <host>remote.home.arpa</host>
+        <username>admin@example.com</username>
+        <password>cf_secret_token_abc123</password>
+        <interface>wan</interface>
+        <description>Cloudflare Remote Gateway DNS</description>
+        <enabled>1</enabled>
+      </account>
+    </accounts>
+  </ddclient>
+  <staticroutes>
+    <route>
+      <network>10.200.0.0/16</network>
+      <gateway>192.168.1.254</gateway>
+      <descr>Site-B Branch Office Subnet</descr>
+      <disabled>0</disabled>
+    </route>
+  </staticroutes>
+  <gateways>
+    <gateway_group>
+      <name>WAN_FAILOVER</name>
+      <item>WAN_GW|1</item>
+      <item>WAN2_GW|2</item>
+      <trigger>down</trigger>
+      <descr>Primary Fiber with LTE Backup</descr>
+    </gateway_group>
+  </gateways>
+  <syslog>
+    <remoteserver>192.168.10.15</remoteserver>
+    <remoteserverport>514</remoteserverport>
+    <proto>udp</proto>
+  </syslog>
+  <snmpd>
+    <enable>1</enable>
+    <community>homelab-public</community>
+    <contact>admin@home.arpa</contact>
+    <location>Server Rack 1</location>
+  </snmpd>
+  <mdnsrepeater>
+    <interface>lan,opt2</interface>
+  </mdnsrepeater>
   <nat>
     <rule>
       <interface>wan</interface>
