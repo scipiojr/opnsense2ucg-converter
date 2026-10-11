@@ -18,6 +18,13 @@ from src.models import (
     UniFiFixedIp,
     UniFiNetwork,
 )
+from src.translator.exclusions import (
+    network_item_id,
+    wlan_item_id,
+    client_item_id,
+    client_name_item_id,
+    device_item_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +37,41 @@ class MultiSourceMerger:
         ucg_state: Optional[UniFiSourceState] = None,
         uos_state: Optional[UniFiSourceState] = None,
         vlan_remaps: Optional[List[Dict[str, Any]]] = None,
+        exclusions: Optional[List[Dict[str, Any]]] = None,
     ):
         self.opn_cfg = opnsense_cfg
         self.target = unifi_target
         self.ucg_state = ucg_state
         self.uos_state = uos_state
         self.vlan_remaps = vlan_remaps or []
+        self.exclusions = {e["item_id"]: e for e in (exclusions or []) if e.get("item_id")}
+
+    def _mark_exclusions(self, items: List[ReconciliationItem]) -> int:
+        """Flags excluded items and keeps excluded entries visible even if the merge no longer produces them."""
+        seen = set()
+        for item in items:
+            excl = self.exclusions.get(item.item_id)
+            if not excl:
+                continue
+            seen.add(item.item_id)
+            item.exclusion = excl
+            item.status = "excluded"
+            item.action = "skip_migration"
+            item.explanation = f"Wird NICHT migriert ({excl.get('strategy_label') or excl.get('strategy', '')}). Ursprünglich: {item.explanation}"
+        for item_id, excl in self.exclusions.items():
+            if item_id in seen:
+                continue
+            kind = item_id.split(":", 1)[0]
+            items.append(ReconciliationItem(
+                category={"client_name": "client"}.get(kind, kind),
+                key=excl.get("label") or item_id,
+                status="excluded",
+                action="skip_migration",
+                explanation="Wird NICHT migriert (Eintrag ist in den aktuellen Quellen nicht mehr als Abweichung sichtbar).",
+                item_id=item_id,
+                exclusion=excl,
+            ))
+        return len(self.exclusions)
 
     def reconcile(self) -> ReconciliationReport:
         items: List[ReconciliationItem] = []
@@ -82,7 +118,7 @@ class MultiSourceMerger:
                 ucg_ip = match.get("ip_subnet", "") or match.get("gateway_ip", "")
                 items.append(
                     ReconciliationItem(
-                        category="network",
+                        category="network", item_id=network_item_id(vlan),
                         key=f"VLAN {vlan} ➔ VLAN {mapped_target_vlan} ({target_net.name})",
                         opnsense_val=target_net.gateway_cidr,
                         ucg_val=ucg_ip or f"VLAN {mapped_target_vlan}",
@@ -101,7 +137,7 @@ class MultiSourceMerger:
                 if not ucg_ip or ucg_ip.startswith(target_cidr[:8]):  # Subnet prefix match
                     items.append(
                         ReconciliationItem(
-                            category="network",
+                            category="network", item_id=network_item_id(vlan),
                             key=f"VLAN {vlan} ({target_net.name})",
                             opnsense_val=target_net.gateway_cidr,
                             ucg_val=ucg_ip or f"VLAN {match.get('vlan', vlan)}",
@@ -114,7 +150,7 @@ class MultiSourceMerger:
                 else:
                     items.append(
                         ReconciliationItem(
-                            category="network",
+                            category="network", item_id=network_item_id(vlan),
                             key=f"VLAN {vlan} ({target_net.name})",
                             opnsense_val=target_net.gateway_cidr,
                             ucg_val=ucg_ip,
@@ -127,7 +163,7 @@ class MultiSourceMerger:
             else:
                 items.append(
                     ReconciliationItem(
-                        category="network",
+                        category="network", item_id=network_item_id(vlan),
                         key=f"VLAN {vlan} ({target_net.name})",
                         opnsense_val=target_net.gateway_cidr,
                         ucg_val=None,
@@ -147,7 +183,7 @@ class MultiSourceMerger:
                     cidr = net.get("ip_subnet", "") or net.get("gateway_ip", "")
                     items.append(
                         ReconciliationItem(
-                            category="network",
+                            category="network", item_id=network_item_id(vlan),
                             key=f"VLAN {vlan} ({net.get('name')})",
                             opnsense_val=None,
                             ucg_val=cidr or "aktiv",
@@ -182,7 +218,7 @@ class MultiSourceMerger:
                 vlan_info = f"VLAN {wlan.vlan_id}" if wlan.vlan_id else "Default (Untagged)"
                 items.append(
                     ReconciliationItem(
-                        category="wlan",
+                        category="wlan", item_id=wlan_item_id(wlan.name),
                         key=f"SSID: {wlan.name}",
                         opnsense_val=None,
                         ucg_val=None,
@@ -213,16 +249,23 @@ class MultiSourceMerger:
                 if mac and name and mac not in uos_clients_by_mac:
                     uos_clients_by_mac[mac] = name
 
+        opn_names_by_mac: Dict[str, str] = {}
+        if self.opn_cfg:
+            for lease in self.opn_cfg.static_leases:
+                if lease.mac:
+                    opn_names_by_mac[lease.mac.lower()] = lease.hostname or lease.descr or ""
+
         for fixed in self.target.fixed_ips:
             mac_clean = fixed.mac.lower()
             if mac_clean in uos_clients_by_mac:
                 friendly_name = uos_clients_by_mac[mac_clean]
-                if friendly_name != fixed.name:
-                    old_name = fixed.name
+                old_name = opn_names_by_mac.get(mac_clean) or fixed.name
+                if friendly_name != old_name:
                     fixed.name = friendly_name
                     items.append(
                         ReconciliationItem(
                             category="client",
+                            item_id=client_name_item_id(mac_clean),
                             key=f"Client {fixed.fixed_ip} ({fixed.mac})",
                             opnsense_val=old_name,
                             ucg_val=None,
@@ -255,6 +298,7 @@ class MultiSourceMerger:
                     items.append(
                         ReconciliationItem(
                             category="client",
+                            item_id=client_item_id(mac),
                             key=f"Client {fixed_ip} ({mac})",
                             opnsense_val=None,
                             ucg_val=fixed_ip if self.ucg_state else None,
@@ -273,7 +317,7 @@ class MultiSourceMerger:
             for dev in self.uos_state.devices:
                 items.append(
                     ReconciliationItem(
-                        category="device",
+                        category="device", item_id=device_item_id(dev.mac),
                         key=f"{dev.name} ({dev.model.upper()})",
                         opnsense_val=None,
                         ucg_val=None,
@@ -284,6 +328,8 @@ class MultiSourceMerger:
                     )
                 )
                 summary["devices_mapped"] += 1
+
+        summary["excluded"] = self._mark_exclusions(items)
 
         report = ReconciliationReport(
             ucg_connected=bool(self.ucg_state and self.ucg_state.networks),

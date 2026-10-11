@@ -31,6 +31,7 @@ from src.sanitizer.masker import SanitizerVault
 from src.translator.mapper import UniFiMapper
 from src.translator.merger import MultiSourceMerger
 from src.translator.remapper import VlanRemapper, remap_ip_address
+from src.translator.exclusions import ExclusionEngine, STRATEGIES, parse_item_id
 from src.llm.engine import LLMTranslationEngine
 from src.unifi.client import UniFiGatewayClient
 from src.unifi.export_parser import UniFiExportParser
@@ -51,6 +52,7 @@ class SessionState:
     uos_state: Optional[UniFiSourceState] = None
     reconciliation_report: Optional[ReconciliationReport] = None
     vlan_remaps: list = []
+    exclusions: list = []   # entries: {item_id, strategy, target_vlan, label, original_name, strategy_label}
 
     def reset(self):
         self.raw_xml = ""
@@ -66,6 +68,7 @@ class SessionState:
         self.uos_state = None
         self.reconciliation_report = None
         self.vlan_remaps = []
+        self.exclusions = []
 
 
 state = SessionState()
@@ -116,7 +119,7 @@ def _apply_xml_content(xml_content: str) -> Dict[str, Any]:
     state.unifi_cfg = mapper.map_all(enforce_inter_vlan_block=True)
 
     if state.ucg_state or state.uos_state:
-        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
         state.reconciliation_report = merger.reconcile()
 
     summary_data = {
@@ -193,7 +196,8 @@ async def process_xml(xml_content: str) -> JSONResponse:
     return JSONResponse(data)
 
 
-def get_unifi_config_dict() -> Dict[str, Any]:
+def _raw_unifi_config_dict(cfg: Optional[UniFiTargetConfig] = None) -> Dict[str, Any]:
+    cfg = cfg if cfg is not None else state.unifi_cfg
     networks_from_sources = []
     if state.ucg_state and state.ucg_state.networks:
         for n in state.ucg_state.networks:
@@ -229,7 +233,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                     "domain_name": getattr(n, "domain_name", "local") or "local",
                 })
 
-    if not state.unifi_cfg:
+    if not cfg:
         rep = state.reconciliation_report
         wlans_from_sources = []
         if state.uos_state and state.uos_state.wlans:
@@ -304,6 +308,8 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                             "status": item.status,
                             "action": item.action,
                             "explanation": item.explanation,
+                        "item_id": getattr(item, "item_id", ""),
+                        "exclusion": getattr(item, "exclusion", None),
                         }
                         for item in rep.items
                     ],
@@ -325,7 +331,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "purpose": getattr(n, "purpose", "corporate") or "corporate",
                 "domain_name": getattr(n, "domain_name", "local") or "local",
             }
-            for n in state.unifi_cfg.networks
+            for n in cfg.networks
         ],
         "firewall_groups": [
             {
@@ -333,7 +339,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "group_type": g.group_type,
                 "members": g.members,
             }
-            for g in state.unifi_cfg.firewall_groups
+            for g in cfg.firewall_groups
         ],
         "firewall_rules": [
             {
@@ -354,7 +360,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "llm_notes": getattr(r, "llm_notes", ""),
                 "enabled": r.enabled,
             }
-            for r in state.unifi_cfg.firewall_rules
+            for r in cfg.firewall_rules
         ],
         "fixed_ips": [
             {
@@ -363,7 +369,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "fixed_ip": f.fixed_ip,
                 "network_name": f.network_name,
             }
-            for f in state.unifi_cfg.fixed_ips
+            for f in cfg.fixed_ips
         ],
         "port_forwards": [
             {
@@ -373,7 +379,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "fwd_port": p.fwd_port,
                 "protocol": p.protocol,
             }
-            for p in state.unifi_cfg.port_forwards
+            for p in cfg.port_forwards
         ],
         "dns_records": [
             {
@@ -381,7 +387,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "value": r.value,
                 "type": r.record_type,
             }
-            for r in getattr(state.unifi_cfg, "dns_records", [])
+            for r in getattr(cfg, "dns_records", [])
         ],
         "traffic_rules": [
             {
@@ -391,7 +397,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "domains": tr.domains,
                 "regions": tr.regions,
             }
-            for tr in getattr(state.unifi_cfg, "traffic_rules", [])
+            for tr in getattr(cfg, "traffic_rules", [])
         ],
         "wireguard_servers": [
             {
@@ -399,7 +405,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "port": wg.port,
                 "tunnel_subnet": wg.tunnel_subnet,
             }
-            for wg in getattr(state.unifi_cfg, "wireguard_servers", [])
+            for wg in getattr(cfg, "wireguard_servers", [])
         ],
         "smart_queue": (
             {
@@ -407,7 +413,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "down_rate_kbps": sq.down_rate_kbps,
                 "up_rate_kbps": sq.up_rate_kbps,
             }
-            if (sq := getattr(state.unifi_cfg, "smart_queue", None)) else None
+            if (sq := getattr(cfg, "smart_queue", None)) else None
         ),
         "omitted_items": [
             {
@@ -417,7 +423,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "recommendation": o.recommendation,
                 "severity": o.severity,
             }
-            for o in getattr(state.unifi_cfg, "omitted_items", [])
+            for o in getattr(cfg, "omitted_items", [])
         ],
         "wlans": [
             {
@@ -427,7 +433,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                 "is_guest": w.is_guest,
                 "enabled": w.enabled,
             }
-            for w in getattr(state.unifi_cfg, "wlans", [])
+            for w in getattr(cfg, "wlans", [])
         ],
         "reconciliation": (
             {
@@ -446,14 +452,191 @@ def get_unifi_config_dict() -> Dict[str, Any]:
                         "status": item.status,
                         "action": item.action,
                         "explanation": item.explanation,
+                        "item_id": getattr(item, "item_id", ""),
+                        "exclusion": getattr(item, "exclusion", None),
                     }
                     for item in rep.items
                 ],
             }
-            if (rep := getattr(state.unifi_cfg, "reconciliation_report", None) or state.reconciliation_report) else None
+            if (rep := getattr(cfg, "reconciliation_report", None) or state.reconciliation_report) else None
         ),
         "ucg_networks": networks_from_sources,
     }
+
+
+STRATEGY_LABELS = {
+    "cascade": "Abhängige Einträge ebenfalls ausschließen",
+    "reassign": "Abhängige Einträge in anderes Netz verschieben",
+    "keep": "Verweise beibehalten (mit Warnung)",
+    "restore": "OPNsense-Hostname behalten",
+    "skip": "Nicht übernehmen",
+}
+
+
+def _exclusion_plan():
+    return ExclusionEngine.build_plan(state.unifi_cfg, state.exclusions) if state.unifi_cfg else None
+
+
+def get_effective_unifi_cfg() -> Optional[UniFiTargetConfig]:
+    """Target config with all exclusions applied – used for export, dry-run and deploy."""
+    if not state.unifi_cfg:
+        return None
+    if not state.exclusions:
+        return state.unifi_cfg
+    return ExclusionEngine.effective_config(state.unifi_cfg, _exclusion_plan())
+
+
+def get_unifi_config_dict() -> Dict[str, Any]:
+    """Full target config for the review UI. Excluded / changed rows are annotated, not removed,
+    so that index-based editing keeps working."""
+    data = _raw_unifi_config_dict()
+    plan = _exclusion_plan()
+    if plan is not None:
+        for key, entries in plan.entries.items():
+            rows = data.get(key) or []
+            for idx, entry in entries.items():
+                if 0 <= idx < len(rows) and isinstance(rows[idx], dict):
+                    rows[idx]["migration"] = entry
+        data["exclusions"] = {
+            "items": state.exclusions,
+            "consequences": plan.consequences,
+            "counts": plan.counts(),
+            "devices_excluded": plan.devices_excluded,
+        }
+    else:
+        data["exclusions"] = {"items": state.exclusions, "consequences": [], "counts": {}, "devices_excluded": []}
+    return data
+
+
+def get_effective_unifi_config_dict() -> Dict[str, Any]:
+    eff = get_effective_unifi_cfg()
+    data = _raw_unifi_config_dict(eff) if eff is not None else _raw_unifi_config_dict()
+    if state.exclusions:
+        plan = _exclusion_plan()
+        data["excluded_from_migration"] = {
+            "items": [{"item_id": e["item_id"], "label": e.get("label"), "strategy": e.get("strategy")} for e in state.exclusions],
+            "consequences": plan.consequences if plan else [],
+        }
+    return data
+
+
+def _rereconcile():
+    if state.opnsense_cfg and state.unifi_cfg:
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state,
+                                   vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+        state.reconciliation_report = merger.reconcile()
+
+
+def _find_report_item(item_id: str):
+    rep = (state.unifi_cfg and getattr(state.unifi_cfg, "reconciliation_report", None)) or state.reconciliation_report
+    if not rep:
+        return None
+    return next((i for i in rep.items if getattr(i, "item_id", "") == item_id), None)
+
+
+def _build_exclusion_entry(body: Dict[str, Any]) -> Dict[str, Any]:
+    item_id = str(body.get("item_id", "")).strip()
+    kind, _ = parse_item_id(item_id)
+    if kind not in STRATEGIES:
+        raise ValueError(f"Unbekannter Eintragstyp '{kind}'.")
+    strategy = body.get("strategy") or STRATEGIES[kind][0]
+    if strategy not in STRATEGIES[kind]:
+        raise ValueError(f"Strategie '{strategy}' ist für '{kind}' nicht zulässig (erlaubt: {', '.join(STRATEGIES[kind])}).")
+    entry: Dict[str, Any] = {"item_id": item_id, "strategy": strategy}
+    if strategy == "reassign":
+        tv = body.get("target_vlan")
+        if tv in (None, ""):
+            raise ValueError("Für 'In anderes Netz verschieben' muss ein Ziel-VLAN gewählt werden.")
+        entry["target_vlan"] = int(tv)
+    report_item = _find_report_item(item_id)
+    entry["label"] = body.get("label") or (report_item.key if report_item else item_id)
+    if kind == "client_name":
+        entry["original_name"] = body.get("original_name") or (report_item.opnsense_val if report_item else None)
+    label = STRATEGY_LABELS.get(strategy, strategy)
+    if strategy == "reassign":
+        label = f"Abhängige Einträge nach VLAN {entry['target_vlan']} verschieben"
+    entry["strategy_label"] = label
+    return entry
+
+
+def _exclusion_response(message: str) -> JSONResponse:
+    unifi_dict = get_unifi_config_dict()
+    return JSONResponse({
+        "success": True,
+        "message": message,
+        "exclusions": unifi_dict.get("exclusions"),
+        "reconciliation": unifi_dict.get("reconciliation"),
+        "unifi_mapped": unifi_dict,
+    })
+
+
+async def exclusion_impact_api(request: Request) -> JSONResponse:
+    """Dry-run: shows which dependent objects are affected before an item is excluded."""
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "Keine Zielkonfiguration vorhanden."}, status_code=200)
+        body = await request.json()
+        entry = _build_exclusion_entry(body)
+        kind, ref = parse_item_id(entry["item_id"])
+        impact = ExclusionEngine.impact(state.unifi_cfg, state.exclusions, entry)
+
+        reassign_targets = []
+        if kind == "network":
+            excluded_vlans = {int(parse_item_id(e["item_id"])[1]) for e in state.exclusions
+                              if parse_item_id(e["item_id"])[0] == "network" and e["item_id"] != entry["item_id"]}
+            reassign_targets = [
+                {"vlan_id": n.vlan_id, "name": n.name, "gateway_cidr": n.gateway_cidr}
+                for n in state.unifi_cfg.networks
+                if int(n.vlan_id) != int(ref) and int(n.vlan_id) not in excluded_vlans
+            ]
+        return JSONResponse({
+            "success": True,
+            "entry": entry,
+            "strategies": [{"id": s, "label": STRATEGY_LABELS.get(s, s)} for s in STRATEGIES[kind]],
+            "reassign_targets": reassign_targets,
+            "impact": impact,
+        })
+    except ValueError as ve:
+        return JSONResponse({"success": False, "error": str(ve)}, status_code=200)
+    except Exception as e:
+        logger.exception("Error in exclusion_impact_api")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def exclude_item_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "Keine Zielkonfiguration vorhanden."}, status_code=200)
+        body = await request.json()
+        entry = _build_exclusion_entry(body)
+        state.exclusions = [e for e in state.exclusions if e["item_id"] != entry["item_id"]] + [entry]
+        _rereconcile()
+        return _exclusion_response(f"'{entry['label']}' wird nicht migriert ({entry['strategy_label']}).")
+    except ValueError as ve:
+        return JSONResponse({"success": False, "error": str(ve)}, status_code=200)
+    except Exception as e:
+        logger.exception("Error in exclude_item_api")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def include_item_api(request: Request) -> JSONResponse:
+    try:
+        body = await request.json()
+        item_id = str(body.get("item_id", "")).strip()
+        before = len(state.exclusions)
+        removed = next((e for e in state.exclusions if e["item_id"] == item_id), None)
+        state.exclusions = [e for e in state.exclusions if e["item_id"] != item_id]
+        if len(state.exclusions) == before:
+            return JSONResponse({"success": False, "error": "Eintrag war nicht ausgeschlossen."}, status_code=200)
+        _rereconcile()
+        return _exclusion_response(f"'{(removed or {}).get('label', item_id)}' wird wieder migriert.")
+    except Exception as e:
+        logger.exception("Error in include_item_api")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def list_exclusions_api(request: Request) -> JSONResponse:
+    return JSONResponse({"success": True, "exclusions": get_unifi_config_dict().get("exclusions")})
 
 
 async def sanitize_api(request: Request) -> JSONResponse:
@@ -589,7 +772,7 @@ async def dry_run_api(request: Request) -> JSONResponse:
         password = body.get("password", "")
 
         client = UniFiGatewayClient(host=host, username=username, password=password)
-        report = client.dry_run(state.unifi_cfg)
+        report = client.dry_run(get_effective_unifi_cfg())
 
         return JSONResponse({"success": True, "report": report})
     except Exception as e:
@@ -607,7 +790,7 @@ async def deploy_api(request: Request) -> JSONResponse:
         password = body.get("password", "")
 
         client = UniFiGatewayClient(host=host, username=username, password=password)
-        results = client.deploy(state.unifi_cfg)
+        results = client.deploy(get_effective_unifi_cfg())
 
         return JSONResponse({"success": True, "results": results})
     except Exception as e:
@@ -618,7 +801,7 @@ async def export_json_api(request: Request) -> JSONResponse:
     if not state.unifi_cfg:
         return JSONResponse({"success": False, "error": "No UniFi configuration ready"}, status_code=400)
 
-    cfg_dict = get_unifi_config_dict()
+    cfg_dict = get_effective_unifi_config_dict()
     return JSONResponse(cfg_dict, headers={"Content-Disposition": "attachment; filename=unifi_ucg_max_config.json"})
 
 
@@ -844,7 +1027,7 @@ async def fetch_ucg_live_api(request: Request) -> JSONResponse:
         state.ucg_state = live_state
 
         if state.opnsense_cfg and state.unifi_cfg:
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
             state.reconciliation_report = merger.reconcile()
 
         unifi_dict = get_unifi_config_dict()
@@ -885,7 +1068,7 @@ async def fetch_uos_live_api(request: Request) -> JSONResponse:
         state.uos_state = live_state
 
         if state.opnsense_cfg and state.unifi_cfg:
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
             state.reconciliation_report = merger.reconcile()
 
         unifi_dict = get_unifi_config_dict()
@@ -911,7 +1094,7 @@ async def reconcile_sources_api(request: Request) -> JSONResponse:
         if not state.opnsense_cfg or not state.unifi_cfg:
             return JSONResponse({"success": False, "error": "Bitte laden Sie zuerst die OPNsense XML-Konfiguration."}, status_code=400)
 
-        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
         report = merger.reconcile()
         state.reconciliation_report = report
 
@@ -998,7 +1181,7 @@ async def upload_export_file_api(request: Request) -> JSONResponse:
 
         # Automatically reconcile if OPNsense is loaded and either UCG or UOS export is present
         if state.opnsense_cfg and state.unifi_cfg and (state.ucg_state or state.uos_state):
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
             state.reconciliation_report = merger.reconcile()
 
         unifi_dict = get_unifi_config_dict()
@@ -1036,7 +1219,7 @@ async def unify_all_api(request: Request) -> JSONResponse:
         state.unifi_cfg = mapper.map_all(enforce_inter_vlan_block=True)
 
         # Merge with UCG-Max export and UOS Server export
-        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
         report = merger.reconcile()
         state.reconciliation_report = report
 
@@ -1068,7 +1251,7 @@ async def export_unified_json_api(request: Request) -> JSONResponse:
     if not state.unifi_cfg:
         return JSONResponse({"success": False, "error": "Keine vereinte Konfiguration vorhanden. Bitte zuerst Dateien laden."}, status_code=200)
 
-    cfg_dict = get_unifi_config_dict()
+    cfg_dict = get_effective_unifi_config_dict()
     return JSONResponse(
         cfg_dict,
         headers={"Content-Disposition": "attachment; filename=unifi_unified_config.json"}
@@ -1140,7 +1323,7 @@ async def update_network_api(request: Request) -> JSONResponse:
                 })
 
             if state.opnsense_cfg and (state.ucg_state or state.uos_state):
-                merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
+                merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
                 state.reconciliation_report = merger.reconcile()
 
             msg = f"Netzwerk '{new_name}' (VLAN {vlan_id}) aktualisiert (Kaskadiert: {remap_res['clients_remapped']} Clients, {remap_res['wlans_remapped']} WLANs)."
@@ -1218,7 +1401,7 @@ async def remap_network_api(request: Request) -> JSONResponse:
             state.vlan_remaps.append(remap_entry)
 
         if state.opnsense_cfg and (state.ucg_state or state.uos_state):
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps)
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
             state.reconciliation_report = merger.reconcile()
 
         unifi_dict = get_unifi_config_dict()
@@ -1606,6 +1789,10 @@ routes = [
     Route("/api/sources/upload-export", endpoint=upload_export_file_api, methods=["POST"]),
     Route("/api/sources/unify-all", endpoint=unify_all_api, methods=["POST"]),
     Route("/api/sources/export-unified-json", endpoint=export_unified_json_api, methods=["GET"]),
+    Route("/api/sources/exclusion-impact", endpoint=exclusion_impact_api, methods=["POST"]),
+    Route("/api/sources/exclude", endpoint=exclude_item_api, methods=["POST"]),
+    Route("/api/sources/include", endpoint=include_item_api, methods=["POST"]),
+    Route("/api/sources/exclusions", endpoint=list_exclusions_api, methods=["GET"]),
     Route("/api/networks/update", endpoint=update_network_api, methods=["POST"]),
     Route("/api/networks/add", endpoint=add_network_api, methods=["POST"]),
     Route("/api/networks/delete", endpoint=delete_network_api, methods=["POST"]),

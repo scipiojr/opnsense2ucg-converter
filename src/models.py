@@ -275,9 +275,11 @@ class ReconciliationItem:
     opnsense_val: Optional[str] = None
     ucg_val: Optional[str] = None
     uos_val: Optional[str] = None
-    status: str = "aligned"         # "aligned", "create", "update", "conflict", "import_uos", "preserve_ucg"
+    status: str = "aligned"         # "aligned", "create", "update", "conflict", "import_uos", "preserve_ucg", "excluded"
     action: str = ""                # Strategy applied
     explanation: str = ""
+    item_id: str = ""               # Stable identifier, e.g. "network:20", "wlan:Home", "client:aa:bb:..."
+    exclusion: Optional[Dict[str, Any]] = None  # Exclusion entry if the item is not migrated
 
 
 @dataclass

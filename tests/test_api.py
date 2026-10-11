@@ -624,6 +624,177 @@ def test_opnsense_live_fetch():
     print("SUCCESS: OPNsense live fetch (Web-GUI form login & REST API) tests passed cleanly!")
 
 
+def _exclusion_fixture_cfg():
+    from src.models import (UniFiTargetConfig, UniFiNetwork, UniFiFixedIp, UniFiWlan, UniFiFirewallRule,
+                            UniFiFirewallGroup, UniFiPortForward, UniFiDnsRecord)
+    cfg = UniFiTargetConfig()
+    cfg.networks = [
+        UniFiNetwork(name="LAN", vlan_id=20, gateway_cidr="192.168.99.1/24"),
+        UniFiNetwork(name="IOT", vlan_id=30, gateway_cidr="192.168.30.1/24"),
+    ]
+    cfg.fixed_ips = [
+        UniFiFixedIp(mac="aa:aa:aa:aa:aa:01", name="NAS", fixed_ip="192.168.99.10", network_name="LAN"),
+        UniFiFixedIp(mac="aa:aa:aa:aa:aa:02", name="Printer", fixed_ip="192.168.99.20", network_name="LAN"),
+        UniFiFixedIp(mac="aa:aa:aa:aa:aa:03", name="Bulb", fixed_ip="192.168.30.20", network_name="IOT"),
+    ]
+    cfg.wlans = [UniFiWlan(name="Home", vlan_id=20), UniFiWlan(name="IoT-WiFi", vlan_id=30)]
+    cfg.firewall_groups = [
+        UniFiFirewallGroup(name="LAN_SERVERS", group_type="address-group", members=["192.168.99.10"]),
+        UniFiFirewallGroup(name="MIXED", group_type="address-group", members=["192.168.99.20", "192.168.30.20"]),
+    ]
+    cfg.firewall_rules = [
+        UniFiFirewallRule(name="LAN to NAS", ruleset="LAN_IN", action="accept", rule_index=2000,
+                          src_address="192.168.99.0/24", dst_address="192.168.99.10"),
+        UniFiFirewallRule(name="IOT block", ruleset="LAN_IN", action="drop", rule_index=2001,
+                          src_address="192.168.30.0/24"),
+        UniFiFirewallRule(name="Servers group", ruleset="LAN_IN", action="accept", rule_index=2002,
+                          dst_firewall_group_names=["LAN_SERVERS"]),
+    ]
+    cfg.port_forwards = [UniFiPortForward(name="NAS-HTTPS", fwd_ip="192.168.99.10", fwd_port="443", dst_port="8443", protocol="tcp")]
+    cfg.dns_records = [UniFiDnsRecord(key="nas.home.arpa", value="192.168.99.10")]
+    return cfg
+
+
+def test_migration_exclusions_engine():
+    from src.translator.exclusions import ExclusionEngine
+
+    # 1. Network cascade: everything depending on LAN disappears
+    cfg = _exclusion_fixture_cfg()
+    excl = [{"item_id": "network:20", "strategy": "cascade"}]
+    plan = ExclusionEngine.build_plan(cfg, excl)
+    eff = ExclusionEngine.effective_config(cfg, plan)
+    assert [n.name for n in eff.networks] == ["IOT"]
+    assert [f.name for f in eff.fixed_ips] == ["Bulb"]
+    assert [w.name for w in eff.wlans] == ["IoT-WiFi"]
+    assert [r.rule_index for r in eff.firewall_rules] == [2001]          # 2000 by address, 2002 via emptied group
+    assert [g.name for g in eff.firewall_groups] == ["MIXED"]
+    assert eff.firewall_groups[0].members == ["192.168.30.20"]
+    assert eff.port_forwards == [] and eff.dns_records == []
+    assert any("Port-Weiterleitung" in c["message"] for c in plan.consequences)
+    # Non-destructive: original untouched
+    assert len(cfg.networks) == 2 and len(cfg.fixed_ips) == 3
+
+    # 2. Network reassign: dependents move to IOT with preserved host offsets
+    excl = [{"item_id": "network:20", "strategy": "reassign", "target_vlan": 30}]
+    eff = ExclusionEngine.effective_config(cfg, ExclusionEngine.build_plan(cfg, excl))
+    assert [n.name for n in eff.networks] == ["IOT"]
+    ips = {f.name: (f.fixed_ip, f.network_name) for f in eff.fixed_ips}
+    assert ips["NAS"] == ("192.168.30.10", "IOT")
+    # Printer .20 collides with Bulb .20 -> reservation dropped with warning
+    assert "Printer" not in ips
+    assert next(w for w in eff.wlans if w.name == "Home").vlan_id == 30
+    assert eff.port_forwards[0].fwd_ip == "192.168.30.10"
+    assert eff.dns_records[0].value == "192.168.30.10"
+    r2000 = next(r for r in eff.firewall_rules if r.rule_index == 2000)
+    assert r2000.src_address == "192.168.30.0/24" and r2000.dst_address == "192.168.30.10"
+
+    # 3. Reassign onto an excluded network falls back to cascade with warning
+    excl = [{"item_id": "network:30", "strategy": "cascade"},
+            {"item_id": "network:20", "strategy": "reassign", "target_vlan": 30}]
+    plan = ExclusionEngine.build_plan(cfg, excl)
+    eff = ExclusionEngine.effective_config(cfg, plan)
+    assert eff.networks == [] and eff.fixed_ips == []
+    assert any("Umzuordnung" in c["message"] for c in plan.consequences)
+
+    # 4. Client cascade vs keep
+    excl = [{"item_id": "client:aa:aa:aa:aa:aa:01", "strategy": "cascade"}]
+    eff = ExclusionEngine.effective_config(cfg, ExclusionEngine.build_plan(cfg, excl))
+    assert "NAS" not in [f.name for f in eff.fixed_ips]
+    assert eff.port_forwards == [] and eff.dns_records == []
+    assert 2000 not in [r.rule_index for r in eff.firewall_rules]       # dst == NAS ip
+    assert 2002 not in [r.rule_index for r in eff.firewall_rules]       # group LAN_SERVERS emptied
+
+    excl = [{"item_id": "client:aa:aa:aa:aa:aa:01", "strategy": "keep"}]
+    plan = ExclusionEngine.build_plan(cfg, excl)
+    eff = ExclusionEngine.effective_config(cfg, plan)
+    assert "NAS" not in [f.name for f in eff.fixed_ips]
+    assert len(eff.port_forwards) == 1 and len(eff.dns_records) == 1
+    assert sum(1 for c in plan.consequences if c["severity"] == "warning") >= 3
+
+    # 5. Client name restore + WLAN skip
+    excl = [{"item_id": "client_name:aa:aa:aa:aa:aa:02", "strategy": "restore", "original_name": "printer-hp"},
+            {"item_id": "wlan:Home", "strategy": "skip"}]
+    eff = ExclusionEngine.effective_config(cfg, ExclusionEngine.build_plan(cfg, excl))
+    assert next(f for f in eff.fixed_ips if f.mac.endswith("02")).name == "printer-hp"
+    assert [w.name for w in eff.wlans] == ["IoT-WiFi"]
+
+    # 6. Impact dry-run lists affected dependents
+    imp = ExclusionEngine.impact(cfg, [], {"item_id": "network:20", "strategy": "cascade"})
+    assert len(imp["affected"]["fixed_ips"]) == 2
+    assert "port_forwards" in imp["affected"] and "wlans" in imp["affected"]
+
+    print("SUCCESS: Migration exclusion engine (cascade / reassign / keep / restore) tests passed cleanly!")
+
+
+def test_migration_exclusions_api():
+    from src.gui.app import (exclusion_impact_api, exclude_item_api, include_item_api,
+                             export_unified_json_api, unify_all_api)
+    from src.models import UniFiSourceState, UniFiWlan
+
+    class MockRequest:
+        def __init__(self, json_data=None):
+            self._json = json_data or {}
+
+        async def json(self):
+            return self._json
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    run = lambda coro: json.loads(loop.run_until_complete(coro).body.decode("utf-8"))
+
+    state.reset()
+    sample_path = os.path.join(os.path.dirname(__file__), "..", "examples", "sample_opnsense_26_7_5.xml")
+    with open(sample_path, "r", encoding="utf-8") as f:
+        loop.run_until_complete(process_xml(f.read()))
+    uos = UniFiSourceState(source_type="uos_server")
+    uos.wlans = [UniFiWlan(name="Legacy-SSID", vlan_id=None)]
+    state.uos_state = uos
+    run(unify_all_api(MockRequest()))
+
+    net = state.unifi_cfg.networks[0]
+    item_id = f"network:{net.vlan_id}"
+    n_before = len(state.unifi_cfg.networks)
+
+    # Impact preview
+    imp = run(exclusion_impact_api(MockRequest({"item_id": item_id, "strategy": "cascade"})))
+    assert imp["success"] is True
+    assert {s["id"] for s in imp["strategies"]} == {"cascade", "reassign"}
+    assert all(t["vlan_id"] != net.vlan_id for t in imp["reassign_targets"])
+
+    # Invalid strategy rejected
+    bad = run(exclude_item_api(MockRequest({"item_id": item_id, "strategy": "keep"})))
+    assert bad["success"] is False
+
+    # Exclude network + WLAN
+    res = run(exclude_item_api(MockRequest({"item_id": item_id, "strategy": "cascade"})))
+    assert res["success"] is True
+    res = run(exclude_item_api(MockRequest({"item_id": "wlan:Legacy-SSID", "strategy": "skip"})))
+    rows = [i for i in res["reconciliation"]["items"] if i["status"] == "excluded"]
+    assert {r["item_id"] for r in rows} == {item_id, "wlan:Legacy-SSID"}
+    # Review keeps all rows (stable indices) but annotates them
+    assert len(res["unifi_mapped"]["networks"]) == n_before
+    assert res["unifi_mapped"]["networks"][0]["migration"]["action"] == "excluded"
+
+    # Export contains effective config only
+    exported = json.loads(loop.run_until_complete(export_unified_json_api(MockRequest())).body.decode("utf-8"))
+    assert len(exported["networks"]) == n_before - 1
+    assert "Legacy-SSID" not in [w["name"] for w in exported["wlans"]]
+    assert len(exported["excluded_from_migration"]["items"]) == 2
+
+    # Exclusions survive a full re-merge
+    res = run(unify_all_api(MockRequest()))
+    assert sum(1 for i in res["reconciliation"]["items"] if i["status"] == "excluded") == 2
+
+    # Undo
+    res = run(include_item_api(MockRequest({"item_id": item_id})))
+    assert res["success"] is True
+    exported = json.loads(loop.run_until_complete(export_unified_json_api(MockRequest())).body.decode("utf-8"))
+    assert len(exported["networks"]) == n_before
+    assert run(include_item_api(MockRequest({"item_id": item_id})))["success"] is False
+
+    print("SUCCESS: Migration exclusion API (impact, exclude, export, re-merge, undo) tests passed cleanly!")
+
+
 if __name__ == "__main__":
     test_core_flow()
     test_upload_export_and_unify_apis()
@@ -631,3 +802,5 @@ if __name__ == "__main__":
     test_unifi_config_dict_fallback_and_uos_safety()
     test_vlan_remapping_and_wlan_crud()
     test_opnsense_live_fetch()
+    test_migration_exclusions_engine()
+    test_migration_exclusions_api()

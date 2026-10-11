@@ -27,6 +27,7 @@ def test_three_way_reconciliation():
         xml_data = f.read()
 
     # 1. Parse OPNsense config
+    state.reset()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     res = loop.run_until_complete(process_xml(xml_data))

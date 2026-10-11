@@ -376,8 +376,16 @@
             <h3 class="text-sm font-semibold flex items-center gap-2 text-cyan-300">
               <i class="fa-solid fa-code-compare"></i> 3-Wege Abgleich-Matrix: OPNsense ↔ UCG-Max ↔ UniFi OS Server
             </h3>
-            <span class="text-xs text-slate-400">Echtzeit-Synchronisationsstatus</span>
+            <div class="flex items-center gap-3">
+              <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer">
+                <input type="checkbox" id="rec-hide-excluded" onchange="renderReconciliation(lastReconciliation)" class="rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0 w-3.5 h-3.5">
+                Ausgeschlossene ausblenden
+              </label>
+              <span class="text-xs text-slate-400">Echtzeit-Synchronisationsstatus</span>
+            </div>
           </div>
+          <!-- Exclusions / consequences panel (hidden when nothing is excluded) -->
+          <div id="exclusion-panel" class="hidden rounded-lg border border-rose-900/60 bg-rose-950/10 p-3 space-y-2 text-xs"></div>
           <div class="overflow-x-auto">
             <table class="w-full text-xs text-left">
               <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
@@ -1584,6 +1592,42 @@
 
 
   <!-- ===================================================================== -->
+  <!-- MODAL 5: EINTRAG NICHT MIGRIEREN (EXCLUSION + FOLGEN-VORSCHAU)        -->
+  <!-- ===================================================================== -->
+  <div id="exclude-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-rose-800/60 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <h3 class="text-sm font-semibold text-rose-300 flex items-center gap-2">
+          <i class="fa-solid fa-ban text-rose-400"></i> Nicht migrieren: <span id="excl-title" class="text-slate-200"></span>
+        </h3>
+        <button onclick="closeExcludeModal()" class="text-slate-400 hover:text-slate-200 text-lg">&times;</button>
+      </div>
+      <input type="hidden" id="excl-item-id" value="">
+      <div class="space-y-3 text-xs overflow-y-auto pr-1">
+        <div>
+          <label class="block text-slate-400 mb-1.5">Umgang mit abhängigen Einträgen</label>
+          <div id="excl-strategies" class="space-y-1.5"></div>
+        </div>
+        <div id="excl-target-box" class="hidden">
+          <label class="block text-slate-400 mb-1">Ziel-Netz für abhängige Einträge</label>
+          <select id="excl-target" onchange="refreshExcludeImpact()" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-rose-500 font-mono"></select>
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1.5">Folgen (Vorschau)</label>
+          <div id="excl-impact" class="rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-2 text-slate-300">Lade…</div>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+        <button onclick="closeExcludeModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium">Abbrechen</button>
+        <button id="excl-confirm" onclick="confirmExclude()" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow">
+          <i class="fa-solid fa-ban"></i> Nicht migrieren
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ===================================================================== -->
   <!-- JAVASCRIPT APPLICATION LOGIC & COMPONENT CONTROLLERS                 -->
   <!-- ===================================================================== -->
   <script>
@@ -1592,6 +1636,218 @@
       return String(str).replace(/[&<>"']/g, function(m) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
       });
+    }
+
+    // -------------------------------------------------------------------------
+    // Migration exclusions ("nicht migrieren") – helpers, modal & panel
+    // -------------------------------------------------------------------------
+    let lastReconciliation = null;
+    let exclState = { strategy: null, data: null };
+
+    function migRowClass(m) {
+      if (!m) return '';
+      if (m.action === 'excluded') return 'opacity-50 bg-rose-950/10';
+      if (m.action === 'reassigned' || m.action === 'modified') return 'bg-amber-950/10';
+      return '';
+    }
+
+    function migBadge(m) {
+      if (!m) return '';
+      const t = escapeHtml(m.reason || '');
+      if (m.action === 'excluded') {
+        return `<span title="${t}" class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-950 text-rose-300 border border-rose-800 whitespace-nowrap"><i class="fa-solid fa-ban mr-0.5"></i>NICHT MIGRIERT</span>`;
+      }
+      const lbl = m.action === 'reassigned' ? 'UMGEZOGEN' : 'ANGEPASST';
+      return `<span title="${t}" class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-950 text-amber-300 border border-amber-800 whitespace-nowrap"><i class="fa-solid fa-right-left mr-0.5"></i>${lbl}</span>`;
+    }
+
+    function excludeToggleBtn(id, m, small) {
+      const sz = small ? 'px-1.5 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs';
+      const base = `${sz} rounded border font-medium inline-flex items-center gap-1 transition mr-1`;
+      if (m && m.action === 'excluded' && m.source === id) {
+        return `<button data-id="${escapeHtml(id)}" onclick="includeItem(this.dataset.id)" class="${base} bg-emerald-950 hover:bg-emerald-900 border-emerald-800 text-emerald-300" title="Ausschluss aufheben"><i class="fa-solid fa-rotate-left"></i>${small ? '' : ' Wieder übernehmen'}</button>`;
+      }
+      if (m && m.source && m.source !== id) {
+        return `<button data-id="${escapeHtml(m.source)}" onclick="includeItem(this.dataset.id)" class="${base} bg-slate-800 hover:bg-emerald-950 border-slate-700 text-slate-300" title="Folge von '${escapeHtml(m.source)}' – Ursache aufheben"><i class="fa-solid fa-link-slash"></i>${small ? '' : ' Ursache aufheben'}</button>`;
+      }
+      return `<button data-id="${escapeHtml(id)}" onclick="openExcludeModal(this.dataset.id)" class="${base} bg-slate-800 hover:bg-rose-950 border-slate-700 hover:border-rose-800 text-slate-300 hover:text-rose-300" title="Nicht migrieren"><i class="fa-solid fa-ban"></i>${small ? '' : ' Nicht migrieren'}</button>`;
+    }
+
+    function applyExclusionResponse(d) {
+      if (d.unifi_mapped) renderUnifiReview(d.unifi_mapped);
+      else if (d.reconciliation) renderReconciliation(d.reconciliation);
+      if (d.message) showToast(d.message);
+    }
+
+    async function includeItem(id) {
+      try {
+        const res = await fetch('/api/sources/include', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: id })
+        });
+        const d = await res.json();
+        if (d.success) applyExclusionResponse(d);
+        else showToast(d.error || 'Fehler beim Aufheben', true);
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    async function openExcludeModal(id) {
+      exclState = { strategy: null, data: null };
+      document.getElementById('excl-item-id').value = id;
+      document.getElementById('excl-title').innerText = id;
+      document.getElementById('excl-strategies').innerHTML = '';
+      document.getElementById('excl-target-box').classList.add('hidden');
+      document.getElementById('excl-impact').innerHTML = 'Lade…';
+      document.getElementById('exclude-modal').classList.remove('hidden');
+      await refreshExcludeImpact(true);
+    }
+
+    function closeExcludeModal() {
+      document.getElementById('exclude-modal').classList.add('hidden');
+    }
+
+    function selectExcludeStrategy(s) {
+      exclState.strategy = s;
+      refreshExcludeImpact();
+    }
+
+    function excludeRequestBody() {
+      const body = { item_id: document.getElementById('excl-item-id').value };
+      if (exclState.strategy) body.strategy = exclState.strategy;
+      if (exclState.strategy === 'reassign') {
+        const tv = document.getElementById('excl-target').value;
+        if (tv !== '') body.target_vlan = parseInt(tv, 10);
+      }
+      return body;
+    }
+
+    async function refreshExcludeImpact(initial) {
+      const impactEl = document.getElementById('excl-impact');
+      const confirmBtn = document.getElementById('excl-confirm');
+      try {
+        const res = await fetch('/api/sources/exclusion-impact', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(excludeRequestBody())
+        });
+        const d = await res.json();
+        if (!d.success) {
+          impactEl.innerHTML = `<span class="text-rose-400">${escapeHtml(d.error || 'Fehler')}</span>`;
+          confirmBtn.disabled = true;
+          return;
+        }
+        confirmBtn.disabled = false;
+        exclState.data = d;
+        exclState.strategy = d.entry.strategy;
+        document.getElementById('excl-title').innerText = d.entry.label || d.entry.item_id;
+
+        // Strategy radios
+        document.getElementById('excl-strategies').innerHTML = d.strategies.map(s => `
+          <label class="flex items-center gap-2 cursor-pointer px-2.5 py-1.5 rounded-lg border ${s.id === exclState.strategy ? 'border-rose-700 bg-rose-950/30 text-rose-200' : 'border-slate-800 text-slate-300 hover:border-slate-700'}">
+            <input type="radio" name="excl-strategy" value="${s.id}" ${s.id === exclState.strategy ? 'checked' : ''} onchange="selectExcludeStrategy(this.value)" class="text-rose-500 focus:ring-0">
+            ${escapeHtml(s.label)}
+          </label>`).join('');
+
+        // Reassign target select
+        const box = document.getElementById('excl-target-box');
+        const sel = document.getElementById('excl-target');
+        if (d.reassign_targets && d.reassign_targets.length) {
+          const prev = sel.value || (d.entry.target_vlan != null ? String(d.entry.target_vlan) : '');
+          sel.innerHTML = d.reassign_targets.map(t =>
+            `<option value="${t.vlan_id}">VLAN ${t.vlan_id} – ${escapeHtml(t.name)} (${escapeHtml(t.gateway_cidr)})</option>`).join('');
+          if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+        }
+        box.classList.toggle('hidden', exclState.strategy !== 'reassign');
+        renderExcludeImpact(d.impact);
+      } catch (err) {
+        impactEl.innerHTML = `<span class="text-rose-400">${escapeHtml(err.message)}</span>`;
+      }
+    }
+
+    const EXCL_KEY_LABELS = {
+      networks: 'Netzwerke', fixed_ips: 'Feste IPs', wlans: 'WLANs', firewall_groups: 'Firewall-Gruppen',
+      firewall_rules: 'Firewall-Regeln', port_forwards: 'Port-Weiterleitungen', dns_records: 'DNS-Einträge',
+      devices: 'Geräte', clients: 'Clients'
+    };
+
+    function renderConsequences(list) {
+      return (list || []).map(c => {
+        const col = c.severity === 'error' ? 'text-rose-400' : c.severity === 'warning' ? 'text-amber-400' : 'text-sky-300';
+        const ico = c.severity === 'info' ? 'fa-circle-info' : 'fa-triangle-exclamation';
+        return `<div class="${col} flex gap-1.5"><i class="fa-solid ${ico} mt-0.5"></i><span>${escapeHtml(c.message)}</span></div>`;
+      }).join('');
+    }
+
+    function renderExcludeImpact(impact) {
+      const el = document.getElementById('excl-impact');
+      const affected = (impact && impact.affected) || {};
+      const groups = Object.entries(affected).filter(([, rows]) => rows && rows.length);
+      let html = '';
+      if (!groups.length) {
+        html += '<div class="text-slate-400">Keine weiteren Einträge betroffen.</div>';
+      } else {
+        html += groups.map(([key, rows]) => `
+          <div>
+            <div class="font-semibold text-slate-200 mb-1">${escapeHtml(EXCL_KEY_LABELS[key] || key)} (${rows.length})</div>
+            <ul class="space-y-0.5 pl-1">
+              ${rows.map(r => {
+                const col = r.action === 'excluded' ? 'text-rose-300' : 'text-amber-300';
+                const verb = r.action === 'excluded' ? 'entfällt' : (r.action === 'reassigned' ? 'wird umgezogen' : 'wird angepasst');
+                const ch = r.changes && Object.keys(r.changes).length
+                  ? ' <span class="text-slate-500 font-mono">(' + Object.entries(r.changes).map(([k, v]) => escapeHtml(k) + ': ' + escapeHtml(typeof v === 'object' ? JSON.stringify(v) : String(v))).join(', ') + ')</span>'
+                  : '';
+                return `<li class="${col}"><i class="fa-solid fa-angle-right text-[9px] mr-1"></i>${escapeHtml(r.label)} – ${verb}${r.reason ? ' <span class="text-slate-500">· ' + escapeHtml(r.reason) + '</span>' : ''}${ch}</li>`;
+              }).join('')}
+            </ul>
+          </div>`).join('');
+      }
+      const cons = renderConsequences(impact && impact.consequences);
+      if (cons) html += `<div class="pt-2 border-t border-slate-800 space-y-1">${cons}</div>`;
+      el.innerHTML = html;
+    }
+
+    async function confirmExclude() {
+      try {
+        const res = await fetch('/api/sources/exclude', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(excludeRequestBody())
+        });
+        const d = await res.json();
+        if (d.success) {
+          closeExcludeModal();
+          applyExclusionResponse(d);
+        } else {
+          showToast(d.error || 'Fehler beim Ausschließen', true);
+        }
+      } catch (err) {
+        showToast('Fehler: ' + err.message, true);
+      }
+    }
+
+    function renderExclusionPanel(ex) {
+      const panel = document.getElementById('exclusion-panel');
+      if (!panel) return;
+      const items = (ex && ex.items) || [];
+      if (!items.length) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+      const counts = (ex.counts) || {};
+      const countTxt = Object.entries(counts).filter(([, v]) => v).map(([k, v]) => `${escapeHtml(EXCL_KEY_LABELS[k] || k)}: ${v}`).join(' · ');
+      panel.classList.remove('hidden');
+      panel.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="font-semibold text-rose-300 flex items-center gap-1.5"><i class="fa-solid fa-ban"></i> ${items.length} Eintrag/Einträge werden nicht migriert</span>
+          ${countTxt ? `<span class="text-slate-400">Betroffen: ${countTxt}</span>` : ''}
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          ${items.map(e => `
+            <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-slate-200">
+              <b>${escapeHtml(e.label || e.item_id)}</b>
+              <span class="text-slate-500">${escapeHtml(e.strategy_label || e.strategy || '')}</span>
+              <button data-id="${escapeHtml(e.item_id)}" onclick="includeItem(this.dataset.id)" class="text-emerald-400 hover:text-emerald-300" title="Wieder übernehmen"><i class="fa-solid fa-rotate-left"></i></button>
+            </span>`).join('')}
+        </div>
+        ${(ex.consequences && ex.consequences.length) ? `<div class="space-y-1 pt-1 border-t border-rose-900/40">${renderConsequences(ex.consequences)}</div>` : ''}
+      `;
     }
 
     // -------------------------------------------------------------------------
@@ -1997,6 +2253,7 @@
                 <span>${r.name}</span>
                 ${originBadge}
                 ${statusBadge}
+                ${migBadge(r.migration)}
               </div>
               <div class="text-[11px] text-slate-400 truncate max-w-sm mt-0.5" title="${r.description}">${r.description}</div>
               ${r.llm_notes ? `<div class="text-[10px] text-cyan-400 font-medium mt-0.5 flex items-center gap-1"><i class="fa-solid fa-sparkles text-xs"></i> ${r.llm_notes}</div>` : ''}
@@ -2294,6 +2551,7 @@
       const wlans = u.wlans || [];
       currentWlans = wlans;
       if (u.ucg_networks) currentUcgNetworks = u.ucg_networks;
+      if (u.exclusions) renderExclusionPanel(u.exclusions);
 
       // Networks
       const netTbody = document.getElementById('unifi-networks-tbody');
@@ -2302,9 +2560,9 @@
           netTbody.innerHTML = '<tr><td colspan="6" class="py-3 text-center text-slate-500">Keine Netzwerke geladen.</td></tr>';
         } else {
           netTbody.innerHTML = currentNetworks.map((n, idx) => `
-            <tr class="hover:bg-slate-800/40">
+            <tr class="hover:bg-slate-800/40 ${migRowClass(n.migration)}">
               <td class="py-2.5 px-3 font-semibold text-sky-300 flex items-center gap-2">
-                <i class="fa-solid fa-network-wired text-sky-400"></i> ${n.name}
+                <i class="fa-solid fa-network-wired text-sky-400"></i> ${n.name} ${migBadge(n.migration)}
               </td>
               <td class="py-2.5 px-3 font-mono font-bold text-slate-200">
                 <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">VLAN ${n.vlan_id}</span>
@@ -2317,6 +2575,7 @@
               </td>
               <td class="py-2.5 px-3 font-mono text-slate-300 text-xs">${n.dhcp_range || (n.dhcp_start && n.dhcp_stop ? n.dhcp_start + ' - ' + n.dhcp_stop : 'Statisch')}</td>
               <td class="py-2.5 px-3 text-right whitespace-nowrap">
+                ${excludeToggleBtn('network:' + n.vlan_id, n.migration)}
                 <button onclick="openVlanRemapModal(${n.vlan_id})" class="px-2.5 py-1 rounded bg-indigo-950 hover:bg-indigo-900 border border-indigo-800 text-indigo-300 text-xs font-medium inline-flex items-center gap-1 transition mr-1" title="VLAN & Subnetz migrieren oder mergen">
                   <i class="fa-solid fa-shuffle"></i> Migrieren / Mergen
                 </button>
@@ -2342,8 +2601,8 @@
           groupsTbody.innerHTML = '<tr><td colspan="3" class="py-3 text-center text-slate-500">Keine Gruppen vorhanden.</td></tr>';
         } else {
           groupsTbody.innerHTML = groups.map(g => `
-            <tr class="hover:bg-slate-800/40">
-              <td class="py-2 px-3 font-semibold text-purple-300">${g.name}</td>
+            <tr class="hover:bg-slate-800/40 ${migRowClass(g.migration)}">
+              <td class="py-2 px-3 font-semibold text-purple-300">${g.name} ${migBadge(g.migration)}</td>
               <td class="py-2 px-3 font-mono text-slate-400">${g.group_type}</td>
               <td class="py-2 px-3 font-mono text-slate-300">${(g.members || []).join(', ')}</td>
             </tr>
@@ -2358,8 +2617,8 @@
           fwdTbody.innerHTML = '<tr><td colspan="4" class="py-3 text-center text-slate-500">Keine Port-Weiterleitungen vorhanden.</td></tr>';
         } else {
           fwdTbody.innerHTML = forwards.map(p => `
-            <tr class="hover:bg-slate-800/40">
-              <td class="py-2 px-3 font-medium text-slate-200">${p.name}</td>
+            <tr class="hover:bg-slate-800/40 ${migRowClass(p.migration)}">
+              <td class="py-2 px-3 font-medium text-slate-200">${p.name} ${migBadge(p.migration)}</td>
               <td class="py-2 px-3 font-mono text-amber-400">${p.dst_port}</td>
               <td class="py-2 px-3 font-mono text-slate-300">${p.fwd_ip}:${p.fwd_port}</td>
               <td class="py-2 px-3 font-mono text-slate-400">${p.protocol}</td>
@@ -2375,14 +2634,15 @@
           fixedTbody.innerHTML = '<tr><td colspan="5" class="py-3 text-center text-slate-500">Keine festen IP-Reservierungen vorhanden.</td></tr>';
         } else {
           fixedTbody.innerHTML = currentFixedIps.map((f, idx) => `
-            <tr class="hover:bg-slate-800/40">
+            <tr class="hover:bg-slate-800/40 ${migRowClass(f.migration)}">
               <td class="py-2 px-3 font-medium text-slate-200 flex items-center gap-1.5">
-                <i class="fa-solid fa-desktop text-slate-400 text-xs"></i> ${f.name}
+                <i class="fa-solid fa-desktop text-slate-400 text-xs"></i> ${f.name} ${migBadge(f.migration)}
               </td>
               <td class="py-2 px-3 font-mono font-bold text-emerald-400">${f.fixed_ip}</td>
               <td class="py-2 px-3 font-mono text-slate-300">${f.mac}</td>
               <td class="py-2 px-3 text-sky-300 font-medium">${f.network_name}</td>
               <td class="py-2 px-3 text-right whitespace-nowrap">
+                ${excludeToggleBtn('client:' + (f.mac || '').toLowerCase(), f.migration, true)}
                 <button onclick="openEditFixedIpModal(${idx})" class="px-2 py-0.5 rounded bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-[11px] font-medium inline-flex items-center gap-1 transition" title="Feste IP / MAC anpassen">
                   <i class="fa-solid fa-pen"></i> Anpassen
                 </button>
@@ -2400,8 +2660,8 @@
       if (dnsTbody) {
         if (dns && dns.length > 0) {
           dnsTbody.innerHTML = dns.map(d => `
-            <tr class="hover:bg-slate-800/40">
-              <td class="py-2 px-3 font-mono text-sky-300">${d.key}</td>
+            <tr class="hover:bg-slate-800/40 ${migRowClass(d.migration)}">
+              <td class="py-2 px-3 font-mono text-sky-300">${d.key} ${migBadge(d.migration)}</td>
               <td class="py-2 px-3 font-mono text-emerald-400">${d.value}</td>
               <td class="py-2 px-3 font-mono text-slate-400">${d.type}</td>
             </tr>
@@ -3139,6 +3399,7 @@
 
     function renderReconciliation(rep) {
       if (!rep) return;
+      lastReconciliation = rep;
       const m = rep.summary || {};
       const elAl = document.getElementById('rec-m-aligned');
       const elCr = document.getElementById('rec-m-create');
@@ -3164,7 +3425,9 @@
         return;
       }
 
-      tbody.innerHTML = rep.items.map(item => {
+      tbody.innerHTML = rep.items.filter(item =>
+        !(document.getElementById('rec-hide-excluded')?.checked && item.status === 'excluded')
+      ).map(item => {
         let badge = '';
         if (item.status === 'aligned') {
           badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">ABGEGLICHEN</span>';
@@ -3176,6 +3439,8 @@
           badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-400 border border-amber-800">KONFLIKT</span>';
         } else if (item.status === 'import_uos') {
           badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-800">UOS IMPORT</span>';
+        } else if (item.status === 'excluded') {
+          badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-800"><i class="fa-solid fa-ban mr-1"></i>NICHT MIGRIERT</span>';
         } else {
           badge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">${item.status}</span>`;
         }
@@ -3186,23 +3451,31 @@
                         item.category === 'device' ? 'fa-server text-indigo-400' : 'fa-tag text-slate-400';
 
         let remapBtn = '';
-        if (item.category === 'network') {
+        if (item.category === 'network' && item.status !== 'excluded') {
           remapBtn = ` <button onclick="openVlanRemapModal()" class="ml-1 text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold underline inline-flex items-center gap-1"><i class="fa-solid fa-shuffle"></i> Zuordnen / Mergen</button>`;
         }
 
+        let exclBtn = '';
+        if (item.item_id) {
+          exclBtn = item.status === 'excluded'
+            ? `<button data-id="${escapeHtml(item.item_id)}" onclick="includeItem(this.dataset.id)" class="mt-1 px-2 py-0.5 rounded bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-[10px] font-semibold inline-flex items-center gap-1 transition"><i class="fa-solid fa-rotate-left"></i> Wieder übernehmen</button>`
+            : `<button data-id="${escapeHtml(item.item_id)}" onclick="openExcludeModal(this.dataset.id)" class="mt-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-rose-950 border border-slate-700 hover:border-rose-800 text-slate-300 hover:text-rose-300 text-[10px] font-semibold inline-flex items-center gap-1 transition"><i class="fa-solid fa-ban"></i> Nicht migrieren</button>`;
+        }
+        const isExcl = item.status === 'excluded';
+
         return `
-          <tr class="hover:bg-slate-800/40">
+          <tr class="hover:bg-slate-800/40 ${isExcl ? 'opacity-60 bg-rose-950/10' : ''}">
             <td class="py-2.5 px-3">
               <span class="inline-flex items-center gap-1.5 font-semibold text-slate-300">
                 <i class="fa-solid ${catIcon}"></i> ${item.category.toUpperCase()}
               </span>
             </td>
-            <td class="py-2.5 px-3 font-semibold text-slate-200">${item.key}</td>
+            <td class="py-2.5 px-3 font-semibold ${isExcl ? 'line-through text-slate-400' : 'text-slate-200'}">${escapeHtml(item.key)}</td>
             <td class="py-2.5 px-3 font-mono text-slate-300">${item.opnsense_val || '<span class="text-slate-600">-</span>'}</td>
             <td class="py-2.5 px-3 font-mono text-sky-300">${item.ucg_val || '<span class="text-slate-600">-</span>'}</td>
             <td class="py-2.5 px-3 font-mono text-purple-300">${item.uos_val || '<span class="text-slate-600">-</span>'}</td>
-            <td class="py-2.5 px-3">${badge}</td>
-            <td class="py-2.5 px-3 text-slate-400 text-xs">${item.explanation}${remapBtn}</td>
+            <td class="py-2.5 px-3">${badge}<div>${exclBtn}</div></td>
+            <td class="py-2.5 px-3 text-slate-400 text-xs">${escapeHtml(item.explanation)}${remapBtn}</td>
           </tr>
         `;
       }).join('');
@@ -3218,9 +3491,9 @@
         return;
       }
       const html1 = currentWlans.map((w, idx) => `
-        <tr class="hover:bg-slate-800/40">
+        <tr class="hover:bg-slate-800/40 ${migRowClass(w.migration)}">
           <td class="py-2.5 px-3 font-semibold text-purple-300 flex items-center gap-2">
-            <i class="fa-solid fa-wifi text-xs text-purple-400"></i> ${w.name}
+            <i class="fa-solid fa-wifi text-xs text-purple-400"></i> ${w.name} ${migBadge(w.migration)}
           </td>
           <td class="py-2.5 px-3 font-mono text-slate-300">${(w.security || '').toUpperCase()}</td>
           <td class="py-2.5 px-3 font-mono text-sky-400 font-semibold">${w.vlan_id ? 'VLAN ' + w.vlan_id : 'Default (Untagged)'}</td>
@@ -3235,6 +3508,7 @@
             </span>
           </td>
           <td class="py-2.5 px-3 text-right whitespace-nowrap">
+            ${excludeToggleBtn('wlan:' + w.name, w.migration)}
             <button onclick="openEditWlanModal(${idx})" class="px-2.5 py-1 rounded bg-purple-950 hover:bg-purple-900 border border-purple-800 text-purple-300 text-xs font-medium inline-flex items-center gap-1 transition" title="WLAN & VLAN anpassen">
               <i class="fa-solid fa-pen-to-square"></i> Anpassen
             </button>
@@ -3246,14 +3520,15 @@
       `).join('');
 
       const html2 = currentWlans.map((w, idx) => `
-        <tr class="hover:bg-slate-800/40">
+        <tr class="hover:bg-slate-800/40 ${migRowClass(w.migration)}">
           <td class="py-2 px-3 font-semibold text-purple-300 flex items-center gap-2">
-            <i class="fa-solid fa-wifi text-xs text-purple-400"></i> ${w.name}
+            <i class="fa-solid fa-wifi text-xs text-purple-400"></i> ${w.name} ${migBadge(w.migration)}
           </td>
           <td class="py-2 px-3 font-mono text-slate-300">${(w.security || '').toUpperCase()}</td>
           <td class="py-2 px-3 font-mono text-sky-400 font-semibold">${w.vlan_id ? 'VLAN ' + w.vlan_id : 'Default (Untagged)'}</td>
           <td class="py-2 px-3">${w.is_guest ? '<span class="text-amber-400 font-medium">Gast</span>' : '<span class="text-slate-400">Intern</span>'}</td>
           <td class="py-2 px-3 text-right whitespace-nowrap">
+            ${excludeToggleBtn('wlan:' + w.name, w.migration, true)}
             <button onclick="openEditWlanModal(${idx})" class="px-2.5 py-1 rounded bg-purple-950 hover:bg-purple-900 border border-purple-800 text-purple-300 text-xs font-medium inline-flex items-center gap-1 transition" title="WLAN & VLAN anpassen">
               <i class="fa-solid fa-pen-to-square"></i>
             </button>
