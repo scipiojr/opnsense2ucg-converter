@@ -24,6 +24,9 @@ from src.models import (
     UniFiNetwork,
     UniFiFixedIp,
     UniFiWlan,
+    UniFiFirewallRule,
+    OPNsenseModemManagement,
+    OmittedItem,
 )
 from src.opnsense.parser import OPNsenseParser
 from src.opnsense.client import OPNsenseClient
@@ -148,6 +151,7 @@ def _apply_xml_content(xml_content: str) -> Dict[str, Any]:
                 "interface_descr": state.opnsense_cfg.modem_management.interface_descr,
                 "modem_ip": state.opnsense_cfg.modem_management.modem_ip,
                 "gateway_ip": state.opnsense_cfg.modem_management.gateway_ip,
+                "subnet": getattr(state.opnsense_cfg.modem_management, "subnet", "24"),
                 "allocated_vlan": state.opnsense_cfg.modem_management.allocated_vlan,
                 "reason": state.opnsense_cfg.modem_management.reason,
             }
@@ -622,12 +626,23 @@ def _raw_unifi_config_dict(cfg: Optional[UniFiTargetConfig] = None) -> Dict[str,
                 "interface_descr": mm.interface_descr,
                 "modem_ip": mm.modem_ip,
                 "gateway_ip": mm.gateway_ip,
+                "subnet": getattr(mm, "subnet", "24"),
                 "allocated_vlan": mm.allocated_vlan,
                 "reason": mm.reason,
             }
             if (mm := getattr(cfg, "modem_management", None)) and mm.detected
             else None
         ),
+        "omitted_items": [
+            {
+                "category": o.category,
+                "name": o.name,
+                "reason": o.reason,
+                "recommendation": o.recommendation,
+                "severity": o.severity,
+            }
+            for o in (getattr(cfg, "omitted_items", None) or (state.opnsense_cfg.omitted_items if state.opnsense_cfg else []))
+        ],
         "ucg_networks": networks_from_sources,
     }
 
@@ -2120,6 +2135,214 @@ async def delete_fixed_ip_api(request: Request) -> JSONResponse:
         return JSONResponse({"success": False, "error": str(e)}, status_code=200)
 
 
+async def get_modem_management_api(request: Request) -> JSONResponse:
+    try:
+        mm = None
+        if state.opnsense_cfg and state.opnsense_cfg.modem_management:
+            mm = state.opnsense_cfg.modem_management
+        elif state.unifi_cfg and getattr(state.unifi_cfg, "modem_management", None):
+            mm = state.unifi_cfg.modem_management
+
+        interfaces = []
+        if state.opnsense_cfg:
+            for i in state.opnsense_cfg.interfaces:
+                if i.id.lower() != "wan":
+                    interfaces.append({
+                        "id": i.id,
+                        "descr": i.descr,
+                        "ip": f"{i.ipaddr}/{i.subnet}" if i.subnet else i.ipaddr,
+                        "vlan": i.vlan_tag,
+                        "vlan_id": i.vlan_tag if i.vlan_tag is not None else (1 if i.id.lower() == "lan" else None),
+                    })
+
+        data = {
+            "enabled": bool(mm and mm.detected),
+            "interface_id": mm.interface_id if mm else "",
+            "interface_descr": mm.interface_descr if mm else "",
+            "modem_ip": mm.modem_ip if mm else "192.168.2.1",
+            "gateway_cidr": f"{mm.gateway_ip}/{mm.subnet}" if (mm and mm.gateway_ip and mm.subnet) else "192.168.2.2/24",
+            "vlan_id": mm.allocated_vlan if (mm and mm.allocated_vlan) else 99,
+            "network_name": "MODEM_MGMT",
+            "reason": mm.reason if mm else "",
+            "available_interfaces": interfaces,
+        }
+        return JSONResponse({"success": True, "data": data})
+    except Exception as e:
+        logger.exception("Error in get_modem_management_api")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
+async def save_modem_management_api(request: Request) -> JSONResponse:
+    try:
+        if not state.unifi_cfg:
+            return JSONResponse({"success": False, "error": "Bitte laden Sie zuerst eine Konfiguration."}, status_code=200)
+
+        body = await request.json()
+        enabled = bool(body.get("enabled", True))
+        interface_id = str(body.get("interface_id", "")).strip()
+        modem_ip = str(body.get("modem_ip", "192.168.2.1")).strip()
+        gateway_cidr = str(body.get("gateway_cidr", "192.168.2.2/24")).strip()
+        vlan_id = int(body.get("vlan_id", 99))
+        network_name = str(body.get("network_name", "MODEM_MGMT")).strip() or "MODEM_MGMT"
+
+        if enabled:
+            if not modem_ip:
+                return JSONResponse({"success": False, "error": "Modem-IP-Adresse darf nicht leer sein."}, status_code=200)
+            if not gateway_cidr:
+                return JSONResponse({"success": False, "error": "Gateway-CIDR darf nicht leer sein."}, status_code=200)
+            if "/" not in gateway_cidr:
+                gateway_cidr = f"{gateway_cidr}/24"
+            gw_ip_part, gw_subnet_part = gateway_cidr.split("/", 1)
+
+            # Look up interface description if provided
+            iface_descr = network_name
+            parent_if = "wan"
+            if state.opnsense_cfg and interface_id:
+                matched_if = next((i for i in state.opnsense_cfg.interfaces if i.id.lower() == interface_id.lower()), None)
+                if matched_if:
+                    iface_descr = matched_if.descr or matched_if.id
+                    parent_if = matched_if.physical_if or "wan"
+
+            # 1. Update / Create OPNsenseModemManagement model
+            mm_obj = OPNsenseModemManagement(
+                detected=True,
+                interface_id=interface_id or "MANUAL",
+                interface_descr=iface_descr,
+                parent_if=parent_if,
+                modem_ip=modem_ip,
+                gateway_ip=gw_ip_part,
+                subnet=gw_subnet_part,
+                existing_vlan=None,
+                allocated_vlan=vlan_id,
+                reason="Manuell über Web-GUI konfiguriert / angepasst",
+            )
+            if state.opnsense_cfg:
+                state.opnsense_cfg.modem_management = mm_obj
+            state.unifi_cfg.modem_management = mm_obj
+
+            # 2. Update OPNsense omitted items
+            if state.opnsense_cfg:
+                state.opnsense_cfg.omitted_items = [
+                    o for o in state.opnsense_cfg.omitted_items if "VDSL-Modem" not in o.name
+                ]
+                state.opnsense_cfg.omitted_items.append(
+                    OmittedItem(
+                        category="Hardware / WAN",
+                        name=f"VDSL-Modem WebUI & Management ({modem_ip})",
+                        reason="UniFi OS unterstützt kein direktes IP-Aliasing auf PPPoE-WAN-Ports im Web-GUI.",
+                        recommendation=(
+                            f"Dediziertes UniFi-Netzwerk '{network_name}' (VLAN {vlan_id}, Subnetz {gateway_cidr}) "
+                            f"sowie Pinhole-Firewall-Regel für {modem_ip} (Ports 80/443) wurden angelegt. "
+                            f"Verbinden Sie Port 2 des Modems mit einem Port (z.B. UCG Port 4 oder Switch) mit nativem VLAN {vlan_id}."
+                        ),
+                        severity="info",
+                    )
+                )
+            if hasattr(state.unifi_cfg, "omitted_items") and state.opnsense_cfg:
+                state.unifi_cfg.omitted_items = list(state.opnsense_cfg.omitted_items)
+
+            # 3. Update UniFi Network in state.unifi_cfg.networks
+            existing_net = next((
+                n for n in state.unifi_cfg.networks
+                if n.name == network_name or n.vlan_id == vlan_id or n.name == "MODEM_MGMT" or "modem" in n.name.lower()
+            ), None)
+            if existing_net:
+                existing_net.name = network_name
+                existing_net.vlan_id = vlan_id
+                existing_net.gateway_cidr = gateway_cidr
+                existing_net.dhcp_enabled = False
+            else:
+                new_net = UniFiNetwork(
+                    name=network_name,
+                    vlan_id=vlan_id,
+                    gateway_cidr=gateway_cidr,
+                    purpose="corporate",
+                    dhcp_enabled=False,
+                )
+                state.unifi_cfg.networks.append(new_net)
+
+            # 4. Update / create Firewall Pinhole Rule on LAN_IN
+            pinhole_rule = next((
+                r for r in state.unifi_cfg.firewall_rules
+                if getattr(r, "origin", "") == "Modem Management Pinhole" or "Modem WebUI" in r.name
+            ), None)
+
+            if pinhole_rule:
+                pinhole_rule.dst_address = modem_ip
+                pinhole_rule.enabled = True
+                pinhole_rule.description = f"Erlaubt WebUI-Zugriff (Port 80/443) auf das VDSL-Modem ({modem_ip}) vor der Inter-VLAN-Blocksperre"
+            else:
+                rule_idx = 2005
+                while any(r.rule_index == rule_idx for r in state.unifi_cfg.firewall_rules):
+                    rule_idx += 1
+                insert_pos = 1
+                for idx, r in enumerate(state.unifi_cfg.firewall_rules):
+                    if r.rule_index < rule_idx:
+                        insert_pos = idx + 1
+                state.unifi_cfg.firewall_rules.insert(
+                    insert_pos,
+                    UniFiFirewallRule(
+                        name="Allow Admin/LAN to Modem WebUI",
+                        ruleset="LAN_IN",
+                        action="accept",
+                        rule_index=rule_idx,
+                        enabled=True,
+                        protocol="tcp",
+                        dst_address=modem_ip,
+                        dst_port="80,443",
+                        state_new=True,
+                        state_established=True,
+                        state_related=True,
+                        logging=False,
+                        origin="Modem Management Pinhole",
+                        description=f"Erlaubt WebUI-Zugriff (Port 80/443) auf das VDSL-Modem ({modem_ip}) vor der Inter-VLAN-Blocksperre",
+                    )
+                )
+            msg = f"VDSL-Modem Management für {modem_ip} erfolgreich eingerichtet (VLAN {vlan_id}, {gateway_cidr})."
+        else:
+            # DISABLED
+            old_vlan = None
+            if state.opnsense_cfg and state.opnsense_cfg.modem_management:
+                old_vlan = state.opnsense_cfg.modem_management.allocated_vlan
+                state.opnsense_cfg.modem_management = None
+            if hasattr(state.unifi_cfg, "modem_management"):
+                if state.unifi_cfg.modem_management:
+                    old_vlan = state.unifi_cfg.modem_management.allocated_vlan
+                state.unifi_cfg.modem_management = None
+
+            if state.opnsense_cfg:
+                state.opnsense_cfg.omitted_items = [
+                    o for o in state.opnsense_cfg.omitted_items if "VDSL-Modem" not in o.name
+                ]
+            if hasattr(state.unifi_cfg, "omitted_items") and state.opnsense_cfg:
+                state.unifi_cfg.omitted_items = list(state.opnsense_cfg.omitted_items)
+
+            # Remove modem network
+            state.unifi_cfg.networks = [
+                n for n in state.unifi_cfg.networks
+                if not (n.name == network_name or n.name == "MODEM_MGMT" or (old_vlan is not None and n.vlan_id == old_vlan) or "modem" in n.name.lower())
+            ]
+
+            # Remove pinhole rule
+            state.unifi_cfg.firewall_rules = [
+                r for r in state.unifi_cfg.firewall_rules
+                if not (getattr(r, "origin", "") == "Modem Management Pinhole" or "Modem WebUI" in r.name)
+            ]
+            msg = "VDSL-Modem Management wurde deaktiviert und entfernt."
+
+        _rereconcile()
+        unifi_dict = get_unifi_config_dict()
+        return JSONResponse({
+            "success": True,
+            "message": msg,
+            "modem_management": unifi_dict.get("modem_management"),
+            "unifi_mapped": unifi_dict,
+        })
+    except Exception as e:
+        logger.exception("Error in save_modem_management_api")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=200)
+
+
 async def edit_item_api(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -2337,6 +2560,8 @@ routes = [
     Route("/api/fixed-ips/update", endpoint=update_fixed_ip_api, methods=["POST"]),
     Route("/api/fixed-ips/add", endpoint=add_fixed_ip_api, methods=["POST"]),
     Route("/api/fixed-ips/delete", endpoint=delete_fixed_ip_api, methods=["POST"]),
+    Route("/api/modem-management", endpoint=get_modem_management_api, methods=["GET"]),
+    Route("/api/modem-management/save", endpoint=save_modem_management_api, methods=["POST"]),
 ]
 
 app = Starlette(debug=True, routes=routes)

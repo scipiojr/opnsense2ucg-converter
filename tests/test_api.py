@@ -899,6 +899,119 @@ def test_edit_item_and_bulk_resolve_api():
     print("SUCCESS: edit_item_api and bulk_resolve_api tests passed cleanly!")
 
 
+def test_modem_management_manual_configuration_api():
+    from src.gui.app import get_modem_management_api, save_modem_management_api
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    class MockRequest:
+        def __init__(self, json_data=None):
+            self._json = json_data or {}
+
+        async def json(self):
+            return self._json
+
+    def run(coro):
+        return loop.run_until_complete(coro)
+
+    # 1. Reset state and load sample XML
+    state.reset()
+    sample_path = os.path.join(os.path.dirname(__file__), "..", "examples", "sample_opnsense_26_7_5.xml")
+    with open(sample_path, "r", encoding="utf-8") as f:
+        xml_data = f.read()
+    run(process_xml(xml_data))
+
+    # 2. Query initial modem management status
+    get_res = run(get_modem_management_api(MockRequest()))
+    get_data = json.loads(get_res.body.decode("utf-8"))
+    assert get_data["success"] is True
+    assert "available_interfaces" in get_data["data"]
+
+    # 3. Manually configure modem management (e.g. modem at 192.168.1.1 on VLAN 88)
+    save_req = MockRequest({
+        "enabled": True,
+        "interface_id": "opt1",
+        "modem_ip": "192.168.1.1",
+        "gateway_cidr": "192.168.1.2/24",
+        "vlan_id": 88,
+        "network_name": "MODEM_MGMT"
+    })
+    save_res = run(save_modem_management_api(save_req))
+    save_data = json.loads(save_res.body.decode("utf-8"))
+    assert save_data["success"] is True
+    assert save_data["modem_management"]["detected"] is True
+    assert save_data["modem_management"]["modem_ip"] == "192.168.1.1"
+    assert save_data["modem_management"]["allocated_vlan"] == 88
+
+    # Verify state updates
+    assert state.opnsense_cfg.modem_management is not None
+    assert state.opnsense_cfg.modem_management.modem_ip == "192.168.1.1"
+    assert state.opnsense_cfg.modem_management.allocated_vlan == 88
+
+    # Verify UniFi network created
+    modem_net = next((n for n in state.unifi_cfg.networks if n.vlan_id == 88), None)
+    assert modem_net is not None
+    assert modem_net.name == "MODEM_MGMT"
+    assert modem_net.gateway_cidr == "192.168.1.2/24"
+    assert modem_net.dhcp_enabled is False
+
+    # Verify pinhole firewall rule created on LAN_IN
+    pinhole = next((r for r in state.unifi_cfg.firewall_rules if r.dst_address == "192.168.1.1"), None)
+    assert pinhole is not None
+    assert pinhole.ruleset == "LAN_IN"
+    assert pinhole.action == "accept"
+    assert pinhole.enabled is True
+
+    # Verify omitted item recommendation exists
+    omitted = next((o for o in state.opnsense_cfg.omitted_items if "192.168.1.1" in o.name), None)
+    assert omitted is not None
+    assert "VLAN 88" in omitted.recommendation
+
+    # 4. Update modem settings (e.g. change IP to 192.168.100.1, VLAN 77)
+    update_req = MockRequest({
+        "enabled": True,
+        "interface_id": "opt1",
+        "modem_ip": "192.168.100.1",
+        "gateway_cidr": "192.168.100.2/24",
+        "vlan_id": 77,
+        "network_name": "VDSL_BRIDGE"
+    })
+    update_res = run(save_modem_management_api(update_req))
+    update_data = json.loads(update_res.body.decode("utf-8"))
+    assert update_data["success"] is True
+    assert update_data["modem_management"]["modem_ip"] == "192.168.100.1"
+    assert update_data["modem_management"]["allocated_vlan"] == 77
+
+    # Verify network was updated
+    net77 = next((n for n in state.unifi_cfg.networks if n.vlan_id == 77), None)
+    assert net77 is not None
+    assert net77.name == "VDSL_BRIDGE"
+    assert net77.gateway_cidr == "192.168.100.2/24"
+
+    # Verify pinhole updated
+    pinhole77 = next((r for r in state.unifi_cfg.firewall_rules if r.dst_address == "192.168.100.1"), None)
+    assert pinhole77 is not None
+
+    # 5. Disable modem management
+    disable_req = MockRequest({
+        "enabled": False,
+        "network_name": "VDSL_BRIDGE"
+    })
+    disable_res = run(save_modem_management_api(disable_req))
+    disable_data = json.loads(disable_res.body.decode("utf-8"))
+    assert disable_data["success"] is True
+    assert disable_data["modem_management"] is None
+    assert state.opnsense_cfg.modem_management is None
+
+    # Network and pinhole rule should be removed
+    assert not any(n.vlan_id == 77 or n.name == "VDSL_BRIDGE" for n in state.unifi_cfg.networks)
+    assert not any(r.dst_address == "192.168.100.1" for r in state.unifi_cfg.firewall_rules)
+    assert not any("VDSL-Modem" in o.name for o in state.opnsense_cfg.omitted_items)
+
+    print("SUCCESS: test_modem_management_manual_configuration_api passed cleanly!")
+
+
 if __name__ == "__main__":
     test_core_flow()
     test_upload_export_and_unify_apis()
@@ -909,4 +1022,5 @@ if __name__ == "__main__":
     test_migration_exclusions_engine()
     test_migration_exclusions_api()
     test_edit_item_and_bulk_resolve_api()
+    test_modem_management_manual_configuration_api()
 
