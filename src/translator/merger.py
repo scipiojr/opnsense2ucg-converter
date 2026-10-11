@@ -41,6 +41,7 @@ class MultiSourceMerger:
         uos_state: Optional[UniFiSourceState] = None,
         vlan_remaps: Optional[List[Dict[str, Any]]] = None,
         exclusions: Optional[List[Dict[str, Any]]] = None,
+        conflict_priority: str = "manual",
     ):
         self.opn_cfg = opnsense_cfg
         self.target = unifi_target
@@ -48,6 +49,7 @@ class MultiSourceMerger:
         self.uos_state = uos_state
         self.vlan_remaps = vlan_remaps or []
         self.exclusions = {e["item_id"]: e for e in (exclusions or []) if e.get("item_id")}
+        self.conflict_priority = conflict_priority or "manual"
 
     def _mark_exclusions(self, items: List[ReconciliationItem]) -> int:
         """Flags excluded items and keeps excluded entries visible even if the merge no longer produces them."""
@@ -78,6 +80,16 @@ class MultiSourceMerger:
 
     def reconcile(self) -> ReconciliationReport:
         items: List[ReconciliationItem] = []
+        raw_prio = (getattr(self, "conflict_priority", "manual") or "manual").lower()
+        if raw_prio in ["opnsense_wins", "opnsense", "opn"]:
+            prio = "opnsense"
+        elif raw_prio in ["preserve_ucg", "ucg_wins", "ucg"]:
+            prio = "ucg"
+        elif raw_prio in ["preserve_uos", "uos_wins", "uos"]:
+            prio = "uos"
+        else:
+            prio = "manual"
+
         summary = {
             "networks_aligned": 0,
             "networks_to_create": 0,
@@ -86,6 +98,7 @@ class MultiSourceMerger:
             "wlans_imported": 0,
             "clients_enriched": 0,
             "devices_mapped": 0,
+            "conflict_priority": prio,
         }
 
         # ---------------------------------------------------------------------
@@ -155,18 +168,66 @@ class MultiSourceMerger:
                     )
                     summary["networks_aligned"] += 1
                 else:
-                    items.append(
-                        ReconciliationItem(
-                            category="network", item_id=network_item_id(vlan),
-                            key=f"VLAN {vlan} ({target_net.name})",
-                            opnsense_val=target_net.gateway_cidr,
-                            ucg_val=ucg_ip,
-                            status="conflict",
-                            action="manual_decision_needed",
-                            explanation=f"Subnetz-Abweichung: OPNsense nutzt {target_net.gateway_cidr}, auf dem UCG-Max ist jedoch {ucg_ip} konfiguriert.",
+                    if prio == "opnsense":
+                        items.append(
+                            ReconciliationItem(
+                                category="network", item_id=network_item_id(vlan),
+                                key=f"VLAN {vlan} ({target_net.name})",
+                                opnsense_val=target_net.gateway_cidr,
+                                ucg_val=ucg_ip,
+                                status="aligned",
+                                action="overwrite_ucg",
+                                explanation=f"Kollision gelöst (OPNsense hat Vorrang): OPNsense-Subnetz ({target_net.gateway_cidr}) überschreibt UCG ({ucg_ip}).",
+                            )
                         )
-                    )
-                    summary["networks_conflicts"] += 1
+                        summary["networks_aligned"] += 1
+                    elif prio == "ucg":
+                        target_net.gateway_cidr = ucg_ip
+                        items.append(
+                            ReconciliationItem(
+                                category="network", item_id=network_item_id(vlan),
+                                key=f"VLAN {vlan} ({target_net.name})",
+                                opnsense_val=target_net.gateway_cidr,
+                                ucg_val=ucg_ip,
+                                status="preserve_ucg",
+                                action="preserve_ucg",
+                                explanation=f"Kollision gelöst (UCG-Max hat Vorrang): Bestehendes UCG-Subnetz ({ucg_ip}) bleibt geschützt erhalten.",
+                            )
+                        )
+                        summary["networks_preserved"] += 1
+                    elif prio == "uos":
+                        uos_net = None
+                        if self.uos_state and self.uos_state.networks:
+                            uos_net = next((n for n in self.uos_state.networks if int(n.get("vlan", 1) or n.get("vlan_id", 1)) == vlan), None)
+                        uos_ip = (uos_net.get("ip_subnet", "") or uos_net.get("gateway_ip", "")) if uos_net else ""
+                        if uos_ip:
+                            target_net.gateway_cidr = uos_ip
+                        items.append(
+                            ReconciliationItem(
+                                category="network", item_id=network_item_id(vlan),
+                                key=f"VLAN {vlan} ({target_net.name})",
+                                opnsense_val=target_net.gateway_cidr,
+                                ucg_val=ucg_ip,
+                                uos_val=uos_ip or None,
+                                status="aligned",
+                                action="preserve_uos",
+                                explanation=f"Kollision gelöst (UniFi OS Server hat Vorrang): Server-Konfiguration ({uos_ip or target_net.gateway_cidr}) hat Vorrang.",
+                            )
+                        )
+                        summary["networks_aligned"] += 1
+                    else:
+                        items.append(
+                            ReconciliationItem(
+                                category="network", item_id=network_item_id(vlan),
+                                key=f"VLAN {vlan} ({target_net.name})",
+                                opnsense_val=target_net.gateway_cidr,
+                                ucg_val=ucg_ip,
+                                status="conflict",
+                                action="manual_decision_needed",
+                                explanation=f"Subnetz-Abweichung: OPNsense nutzt {target_net.gateway_cidr}, auf dem UCG-Max ist jedoch {ucg_ip} konfiguriert.",
+                            )
+                        )
+                        summary["networks_conflicts"] += 1
             else:
                 items.append(
                     ReconciliationItem(
@@ -503,6 +564,7 @@ class MultiSourceMerger:
             uos_version=self.uos_state.version if self.uos_state else "",
             items=items,
             summary=summary,
+            conflict_priority=prio,
         )
 
         self.target.reconciliation_report = report

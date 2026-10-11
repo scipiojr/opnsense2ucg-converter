@@ -366,6 +366,7 @@
           </div>
 
           <div class="flex items-center gap-2 shrink-0">
+            <span id="step1-mgmt-badge"></span>
             <button onclick="openVlanRemapModal()" class="px-3 py-1.5 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-800 text-indigo-300 text-xs font-semibold flex items-center gap-1.5 transition">
               <i class="fa-solid fa-shuffle"></i> VLANs zuordnen &amp; mergen
             </button>
@@ -384,14 +385,20 @@
               </h3>
               <p class="text-[11px] text-slate-400 mt-0.5">Granular vergleichen, abwählen, editieren oder Konfliktstrategien festlegen.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <button onclick="bulkResolveConflicts('opnsense_wins')" class="px-2.5 py-1 rounded bg-sky-950 hover:bg-sky-900 border border-sky-800 text-sky-300 text-xs font-medium inline-flex items-center gap-1 transition" title="Alle Konflikte mit OPNsense-Masterwerten überschreiben">
-                <i class="fa-solid fa-bolt"></i> OPNsense gewinnt
-              </button>
-              <button onclick="bulkResolveConflicts('preserve_ucg')" class="px-2.5 py-1 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 text-xs font-medium inline-flex items-center gap-1 transition" title="Alle Konflikte zugunsten des UCG schützen">
-                <i class="fa-solid fa-shield"></i> UCG schützen
-              </button>
-              <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer ml-2">
+            <div class="flex items-center gap-2.5 flex-wrap">
+              <div class="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 shadow-sm">
+                <label for="rec-conflict-priority" class="text-xs text-slate-300 font-medium flex items-center gap-1.5 whitespace-nowrap">
+                  <i class="fa-solid fa-scale-balanced text-amber-400"></i>
+                  <span>Kollisions-Vorrang:</span>
+                </label>
+                <select id="rec-conflict-priority" onchange="applyConflictPriority(this.value)" class="bg-slate-900 hover:bg-slate-800/80 border border-slate-700 focus:border-cyan-400 text-slate-200 text-xs rounded px-2 py-1 focus:outline-none transition cursor-pointer font-medium" title="Festlegen, welche der 3 Konfigurationen bei Kollisionen Vorrang hat">
+                  <option value="manual">⚖️ Manuell (Einzelfallprüfung)</option>
+                  <option value="opnsense">⚡ 1. OPNsense XML (Master)</option>
+                  <option value="ucg">🛡️ 2. UCG-Max (Ist-Zustand)</option>
+                  <option value="uos">📡 3. UniFi OS Server (Controller)</option>
+                </select>
+              </div>
+              <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer ml-1 select-none">
                 <input type="checkbox" id="rec-hide-excluded" onchange="renderReconciliation(lastReconciliation)" class="rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-0 w-3.5 h-3.5">
                 Ausgeschlossene ausblenden
               </label>
@@ -1827,6 +1834,109 @@
     // -------------------------------------------------------------------------
     let lastReconciliation = null;
     let exclState = { strategy: null, data: null };
+    let lastSummary = null;
+    let lastParsedData = null;
+    let currentNetworks = [];
+
+    function isNetworkManagement(n) {
+      if (!n) return false;
+      return !!n.is_management || (n.vlan_id === 1 && (((n.name || '').toLowerCase().includes('mgmt')) || ((n.name || '').toLowerCase().includes('management')) || n.name === 'Default'));
+    }
+
+    function getManagementBadgeHtml(idx, isMgmt) {
+      if (idx === -1 || idx === null || idx === undefined || idx < 0 || !currentNetworks || idx >= currentNetworks.length) return '';
+      return isMgmt
+        ? `<button type="button" onclick="openEditNetworkModal(${idx}, 'management')" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 inline-flex items-center gap-1 shadow-sm transition hover:scale-105 cursor-pointer" title="Management-VLAN – Klicken zum Bearbeiten in den Details"><i class="fa-solid fa-crown text-amber-400"></i> Management <i class="fa-solid fa-gear text-[9px] opacity-70 ml-0.5"></i></button>`
+        : `<button type="button" onclick="openEditNetworkModal(${idx}, 'management')" class="px-2 py-0.5 rounded-full text-[10px] font-medium text-slate-400 hover:text-amber-300 hover:bg-amber-950/40 border border-slate-800 hover:border-amber-800/60 inline-flex items-center gap-1 transition cursor-pointer" title="Klicken, um dieses Netzwerk in den Details als Management-VLAN festzulegen"><i class="fa-regular fa-star text-[9px]"></i> Als Mgmt festlegen</button>`;
+    }
+
+    function findNetworkIndexForInterface(iface) {
+      if (!currentNetworks || currentNetworks.length === 0) return -1;
+      let targetVlan = null;
+      if (typeof iface.vlan_id === 'number') {
+        targetVlan = iface.vlan_id;
+      } else if (typeof iface.vlan === 'number') {
+        targetVlan = iface.vlan;
+      } else if (iface.vlan && iface.vlan !== 'Untagged') {
+        const parsed = parseInt(iface.vlan);
+        if (!isNaN(parsed)) targetVlan = parsed;
+      } else if (iface.id && iface.id.toLowerCase() === 'lan') {
+        targetVlan = 1;
+      }
+
+      if (targetVlan !== null) {
+        const idx = currentNetworks.findIndex(n => n.vlan_id === targetVlan);
+        if (idx !== -1) return idx;
+      }
+
+      const descr = (iface.descr || '').trim().toLowerCase();
+      const id = (iface.id || '').trim().toLowerCase();
+      let idx = currentNetworks.findIndex(n => (n.name || '').trim().toLowerCase() === descr);
+      if (idx !== -1) return idx;
+      idx = currentNetworks.findIndex(n => (n.name || '').trim().toLowerCase() === id);
+      return idx;
+    }
+
+    function updateStep1ManagementBadge() {
+      const el = document.getElementById('step1-mgmt-badge');
+      if (!el) return;
+      if (!currentNetworks || currentNetworks.length === 0) {
+        el.innerHTML = '';
+        return;
+      }
+      const mgmtIdx = currentNetworks.findIndex(n => isNetworkManagement(n));
+      if (mgmtIdx >= 0) {
+        const m = currentNetworks[mgmtIdx];
+        el.innerHTML = `
+          <button type="button" onclick="openEditNetworkModal(${mgmtIdx}, 'management')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 inline-flex items-center gap-1.5 shadow-sm transition hover:scale-105 cursor-pointer" title="Management-VLAN: ${escapeHtml(m.name)} (VLAN ${m.vlan_id}) – Klicken zum Einstellen / Ändern">
+            <i class="fa-solid fa-crown text-amber-400"></i> Mgmt: ${escapeHtml(m.name)} (VLAN ${m.vlan_id}) <i class="fa-solid fa-gear text-[10px] opacity-70 ml-0.5"></i>
+          </button>
+        `;
+      } else {
+        el.innerHTML = `
+          <button type="button" onclick="openEditNetworkModal(0, 'management')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-amber-300 hover:bg-amber-950/40 border border-slate-800 hover:border-amber-800/60 inline-flex items-center gap-1.5 transition cursor-pointer" title="Klicken, um das primäre Management-VLAN festzulegen">
+            <i class="fa-regular fa-star text-xs"></i> Als Mgmt festlegen
+          </button>
+        `;
+      }
+    }
+
+    function renderInterfacesTable(interfaces) {
+      const ifTable = document.getElementById('interfaces-tbody');
+      if (!ifTable) return;
+      const ifaces = interfaces || (lastSummary ? lastSummary.interfaces : []);
+      if (!ifaces || ifaces.length === 0) {
+        ifTable.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-500">Noch keine Interfaces geladen.</td></tr>';
+        return;
+      }
+      ifTable.innerHTML = ifaces.map(i => {
+        const netIdx = findNetworkIndexForInterface(i);
+        const net = netIdx >= 0 ? currentNetworks[netIdx] : null;
+        const isMgmt = net ? isNetworkManagement(net) : (i.vlan === 1 || i.vlan_id === 1 || (i.descr && (i.descr.toLowerCase().includes('mgmt') || i.descr.toLowerCase().includes('management'))));
+        const mgmtBadge = netIdx >= 0 ? getManagementBadgeHtml(netIdx, isMgmt) : '';
+        const rowClass = isMgmt ? 'bg-amber-950/15 border-l-4 border-l-amber-500 hover:bg-amber-950/25' : 'hover:bg-slate-800/40';
+        const nameColor = isMgmt ? 'text-amber-200' : 'text-sky-300';
+        const vlanBadge = isMgmt && (net?.vlan_id === 1 || i.vlan_id === 1 || i.vlan === 1 || i.vlan === '1' || i.vlan === 'Untagged')
+          ? '<span class="px-2 py-0.5 rounded bg-amber-950/70 text-amber-300 border border-amber-700/80 font-bold">VLAN 1 (Native Untagged)</span>'
+          : `<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">${i.vlan}</span>`;
+
+        return `
+          <tr class="${rowClass}">
+            <td class="py-2.5 px-3 font-semibold text-slate-200">${i.id}</td>
+            <td class="py-2.5 px-3 font-semibold ${nameColor}">
+              <div class="flex items-center gap-2 flex-wrap">
+                <i class="fa-solid ${isMgmt ? 'fa-crown text-amber-400' : 'fa-network-wired text-sky-400'}"></i>
+                <span>${i.descr || i.id}</span>
+                ${mgmtBadge}
+              </div>
+            </td>
+            <td class="py-2.5 px-3 text-slate-400 font-mono">${i.device}</td>
+            <td class="py-2.5 px-3 font-mono font-bold">${vlanBadge}</td>
+            <td class="py-2.5 px-3 font-mono text-slate-300">${i.ip}</td>
+          </tr>
+        `;
+      }).join('');
+    }
 
     function migRowClass(m) {
       if (!m) return '';
@@ -2281,7 +2391,9 @@
     }
 
     function renderParsedData(data) {
+      lastParsedData = data;
       const s = data.summary;
+      lastSummary = s;
       document.getElementById('metric-vlans').innerText = s.interfaces_count;
       document.getElementById('metric-dhcp').innerText = s.static_leases_count;
       document.getElementById('metric-nat').innerText = s.total_nat_count || s.port_forwards_count || 0;
@@ -2312,18 +2424,7 @@
       }
 
       // Interfaces Table
-      const ifTable = document.getElementById('interfaces-tbody');
-      if (ifTable) {
-        ifTable.innerHTML = s.interfaces.map(i => `
-          <tr class="hover:bg-slate-800/40">
-            <td class="py-2.5 px-3 font-semibold text-slate-200">${i.id}</td>
-            <td class="py-2.5 px-3 text-sky-400 font-medium">${i.descr}</td>
-            <td class="py-2.5 px-3 text-slate-400 font-mono">${i.device}</td>
-            <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">${i.vlan}</span></td>
-            <td class="py-2.5 px-3 font-mono text-slate-300">${i.ip}</td>
-          </tr>
-        `).join('');
-      }
+      renderInterfacesTable(s.interfaces);
 
       // Leases Table
       const leaseTable = document.getElementById('leases-tbody');
@@ -2719,7 +2820,6 @@
     // -------------------------------------------------------------------------
     // UniFi Configuration Review Renderer
     // -------------------------------------------------------------------------
-    let currentNetworks = [];
     let currentFixedIps = [];
     let currentWlans = [];
     let currentUcgNetworks = [];
@@ -2745,15 +2845,13 @@
           netTbody.innerHTML = '<tr><td colspan="6" class="py-3 text-center text-slate-500">Keine Netzwerke geladen.</td></tr>';
         } else {
           netTbody.innerHTML = currentNetworks.map((n, idx) => {
-            const isMgmt = !!n.is_management || (n.vlan_id === 1 && (n.name.toLowerCase().includes('mgmt') || n.name.toLowerCase().includes('management') || n.name === 'Default'));
+            const isMgmt = isNetworkManagement(n);
             const rowClass = isMgmt ? 'bg-amber-950/15 border-l-4 border-l-amber-500 hover:bg-amber-950/25' : `hover:bg-slate-800/40 ${migRowClass(n.migration)}`;
             const nameColor = isMgmt ? 'text-amber-200' : 'text-sky-300';
             const vlanBadge = isMgmt && n.vlan_id === 1
               ? '<span class="px-2 py-0.5 rounded bg-amber-950/70 text-amber-300 border border-amber-700/80 font-bold">VLAN 1 (Native Untagged)</span>'
               : `<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">VLAN ${n.vlan_id}</span>`;
-            const mgmtBadge = isMgmt
-              ? `<button type="button" onclick="openEditNetworkModal(${idx}, 'management')" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 inline-flex items-center gap-1 shadow-sm transition hover:scale-105 cursor-pointer" title="Management-VLAN – Klicken zum Bearbeiten in den Details"><i class="fa-solid fa-crown text-amber-400"></i> Management <i class="fa-solid fa-gear text-[9px] opacity-70 ml-0.5"></i></button>`
-              : `<button type="button" onclick="openEditNetworkModal(${idx}, 'management')" class="px-2 py-0.5 rounded-full text-[10px] font-medium text-slate-400 hover:text-amber-300 hover:bg-amber-950/40 border border-slate-800 hover:border-amber-800/60 inline-flex items-center gap-1 transition cursor-pointer" title="Klicken, um dieses Netzwerk in den Details als Management-VLAN festzulegen"><i class="fa-regular fa-star text-[9px]"></i> Als Mgmt festlegen</button>`;
+            const mgmtBadge = getManagementBadgeHtml(idx, isMgmt);
 
             return `
             <tr class="${rowClass}">
@@ -2967,8 +3065,12 @@
       // Render Reconciliation & WLANs if available
       if (u.reconciliation) {
         renderReconciliation(u.reconciliation);
+      } else if (lastReconciliation) {
+        renderReconciliation(lastReconciliation);
       }
       renderWlans(wlans || []);
+      renderInterfacesTable();
+      updateStep1ManagementBadge();
     }
 
     // -------------------------------------------------------------------------
@@ -3032,6 +3134,7 @@
       document.getElementById('edit-network-modal').classList.remove('hidden');
 
       if (focusField === 'management') {
+        if (isMgmtEl && !isMgmtEl.checked) isMgmtEl.checked = true;
         if (mgmtBox) {
           mgmtBox.classList.add('ring-2', 'ring-amber-500', 'bg-amber-950/50');
           setTimeout(() => {
@@ -3136,6 +3239,7 @@
         if (data.success) {
           closeEditNetworkModal();
           renderUnifiReview(data.unifi_mapped);
+          if (data.reconciliation) renderReconciliation(data.reconciliation);
           showToast(data.message || 'Netzwerk erfolgreich gespeichert!');
         } else {
           showToast(data.error || 'Fehler beim Speichern des Netzwerks', true);
@@ -3745,18 +3849,45 @@
       if (lastReconciliation) renderReconciliation(lastReconciliation);
     }
 
+    async function applyConflictPriority(strategy) {
+      return await bulkResolveConflicts(strategy);
+    }
+
     async function bulkResolveConflicts(strategy) {
+      const selectEl = document.getElementById('rec-conflict-priority');
+      if (selectEl && strategy && selectEl.value !== strategy) {
+        selectEl.value = strategy;
+      }
       try {
-        const res = await fetch('/api/sources/bulk-resolve', {
+        const res = await fetch('/api/sources/conflict-priority', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ strategy: strategy })
+          body: JSON.stringify({ strategy: strategy, priority: strategy })
         });
-        const data = await res.json();
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (jsonErr) {
+          if (res.status === 404) {
+            throw new Error('Der Server läuft möglicherweise noch in einer alten Instanz (404 Not Found). Bitte starten Sie den Serverprozess neu.');
+          }
+          throw new Error(`Ungültige Server-Antwort (HTTP ${res.status}): ${text.substring(0, 100)}`);
+        }
+        if (!res.ok) {
+          throw new Error(data.error || `HTTP-Fehler ${res.status}`);
+        }
         if (data.success) {
           if (data.unifi_mapped) renderUnifiReview(data.unifi_mapped);
-          if (data.unifi_mapped && data.unifi_mapped.reconciliation) renderReconciliation(data.unifi_mapped.reconciliation);
-          showToast(data.message || 'Konflikte aufgelöst!');
+          if (data.unifi_mapped && data.unifi_mapped.reconciliation) {
+            renderReconciliation(data.unifi_mapped.reconciliation);
+          } else if (data.reconciliation) {
+            renderReconciliation(data.reconciliation);
+          }
+          if (data.conflict_priority && selectEl) {
+            selectEl.value = data.conflict_priority;
+          }
+          showToast(data.message || 'Kollisions-Vorrang erfolgreich angewendet!');
         } else {
           showToast(data.error || 'Fehler beim Auflösen der Konflikte', true);
         }
@@ -4073,6 +4204,12 @@
       if (elCl) elCl.innerText = m.clients_enriched || 0;
       if (elDv) elDv.innerText = m.devices_mapped || 0;
 
+      const prioVal = rep.conflict_priority || (rep.summary && rep.summary.conflict_priority);
+      if (prioVal) {
+        const selPrio = document.getElementById('rec-conflict-priority');
+        if (selPrio) selPrio.value = prioVal;
+      }
+
       const items = rep.items || [];
       const counts = {
         all: items.length,
@@ -4168,14 +4305,45 @@
 
         const isExcl = item.status === 'excluded';
 
+        let netIdx = -1;
+        let isNetMgmt = false;
+        let netMgmtBadge = '';
+        if (item.category === 'network') {
+          const vlanMatch = item.item_id ? item.item_id.match(/^network:(\d+)$/) : null;
+          const vlanId = vlanMatch ? parseInt(vlanMatch[1]) : null;
+          if (vlanId !== null) {
+            netIdx = currentNetworks.findIndex(n => n.vlan_id === vlanId);
+          }
+          if (netIdx === -1 && item.key) {
+            const keyMatch = item.key.match(/VLAN\s+(\d+)/i);
+            if (keyMatch) {
+              const v = parseInt(keyMatch[1]);
+              netIdx = currentNetworks.findIndex(n => n.vlan_id === v);
+            }
+          }
+          if (netIdx >= 0) {
+            const net = currentNetworks[netIdx];
+            isNetMgmt = isNetworkManagement(net);
+            netMgmtBadge = getManagementBadgeHtml(netIdx, isNetMgmt);
+          }
+        }
+
+        const rowHighlight = isNetMgmt ? 'bg-amber-950/15 border-l-4 border-l-amber-500 hover:bg-amber-950/25' : '';
+        const keyColor = isExcl ? 'line-through text-slate-400' : (isNetMgmt ? 'text-amber-200' : 'text-slate-200');
+
         return `
-          <tr class="hover:bg-slate-800/40 ${isExcl ? 'opacity-60 bg-rose-950/10' : ''}">
+          <tr class="hover:bg-slate-800/40 ${isExcl ? 'opacity-60 bg-rose-950/10' : ''} ${rowHighlight}">
             <td class="py-2.5 px-3">
               <span class="inline-flex items-center gap-1.5 font-semibold text-slate-300">
-                <i class="fa-solid ${catIcon}"></i> ${item.category.toUpperCase()}
+                <i class="fa-solid ${isNetMgmt ? 'fa-crown text-amber-400' : catIcon}"></i> ${item.category.toUpperCase()}
               </span>
             </td>
-            <td class="py-2.5 px-3 font-semibold ${isExcl ? 'line-through text-slate-400' : 'text-slate-200'}">${escapeHtml(item.key)}</td>
+            <td class="py-2.5 px-3 font-semibold ${keyColor}">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span>${escapeHtml(item.key)}</span>
+                ${netMgmtBadge}
+              </div>
+            </td>
             <td class="py-2.5 px-3 font-mono text-slate-300">${item.opnsense_val || '<span class="text-slate-600">-</span>'}</td>
             <td class="py-2.5 px-3 font-mono text-sky-300">${item.ucg_val || '<span class="text-slate-600">-</span>'}</td>
             <td class="py-2.5 px-3 font-mono text-purple-300">${item.uos_val || '<span class="text-slate-600">-</span>'}</td>

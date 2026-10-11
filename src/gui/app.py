@@ -53,6 +53,7 @@ class SessionState:
     reconciliation_report: Optional[ReconciliationReport] = None
     vlan_remaps: list = []
     exclusions: list = []   # entries: {item_id, strategy, target_vlan, label, original_name, strategy_label}
+    conflict_priority: str = "manual"  # "manual", "opnsense", "ucg", "uos"
 
     def reset(self):
         self.raw_xml = ""
@@ -69,6 +70,7 @@ class SessionState:
         self.reconciliation_report = None
         self.vlan_remaps = []
         self.exclusions = []
+        self.conflict_priority = "manual"
 
 
 state = SessionState()
@@ -119,7 +121,7 @@ def _apply_xml_content(xml_content: str) -> Dict[str, Any]:
     state.unifi_cfg = mapper.map_all(enforce_inter_vlan_block=True)
 
     if state.ucg_state or state.uos_state:
-        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions, conflict_priority=state.conflict_priority)
         state.reconciliation_report = merger.reconcile()
 
     summary_data = {
@@ -168,6 +170,7 @@ def _apply_xml_content(xml_content: str) -> Dict[str, Any]:
                 "descr": i.descr,
                 "ip": f"{i.ipaddr}/{i.subnet}" if i.subnet else i.ipaddr,
                 "vlan": i.vlan_tag or "Untagged",
+                "vlan_id": i.vlan_tag if i.vlan_tag is not None else (1 if i.id.lower() == "lan" else None),
                 "device": i.physical_if,
             }
             for i in state.opnsense_cfg.interfaces
@@ -334,6 +337,7 @@ def _raw_unifi_config_dict(cfg: Optional[UniFiTargetConfig] = None) -> Dict[str,
                     "uos_connected": rep.uos_connected,
                     "ucg_version": rep.ucg_version,
                     "uos_version": rep.uos_version,
+                    "conflict_priority": getattr(rep, "conflict_priority", state.conflict_priority),
                     "summary": rep.summary,
                     "items": [
                         {
@@ -591,6 +595,7 @@ def _raw_unifi_config_dict(cfg: Optional[UniFiTargetConfig] = None) -> Dict[str,
                 "uos_connected": rep.uos_connected,
                 "ucg_version": rep.ucg_version,
                 "uos_version": rep.uos_version,
+                "conflict_priority": getattr(rep, "conflict_priority", state.conflict_priority),
                 "summary": rep.summary,
                 "items": [
                     {
@@ -668,6 +673,7 @@ def get_unifi_config_dict() -> Dict[str, Any]:
         }
     else:
         data["exclusions"] = {"items": state.exclusions, "consequences": [], "counts": {}, "devices_excluded": []}
+    data["conflict_priority"] = state.conflict_priority
     return data
 
 
@@ -686,7 +692,8 @@ def get_effective_unifi_config_dict() -> Dict[str, Any]:
 def _rereconcile():
     if state.opnsense_cfg and state.unifi_cfg:
         merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state,
-                                   vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+                                   vlan_remaps=state.vlan_remaps, exclusions=state.exclusions,
+                                   conflict_priority=state.conflict_priority)
         state.reconciliation_report = merger.reconcile()
 
 
@@ -1190,7 +1197,7 @@ async def fetch_ucg_live_api(request: Request) -> JSONResponse:
         state.ucg_state = live_state
 
         if state.opnsense_cfg and state.unifi_cfg:
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions, conflict_priority=state.conflict_priority)
             state.reconciliation_report = merger.reconcile()
 
         unifi_dict = get_unifi_config_dict()
@@ -1231,7 +1238,7 @@ async def fetch_uos_live_api(request: Request) -> JSONResponse:
         state.uos_state = live_state
 
         if state.opnsense_cfg and state.unifi_cfg:
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions, conflict_priority=state.conflict_priority)
             state.reconciliation_report = merger.reconcile()
 
         unifi_dict = get_unifi_config_dict()
@@ -1257,7 +1264,7 @@ async def reconcile_sources_api(request: Request) -> JSONResponse:
         if not state.opnsense_cfg or not state.unifi_cfg:
             return JSONResponse({"success": False, "error": "Bitte laden Sie zuerst die OPNsense XML-Konfiguration."}, status_code=400)
 
-        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions, conflict_priority=state.conflict_priority)
         report = merger.reconcile()
         state.reconciliation_report = report
 
@@ -1344,7 +1351,7 @@ async def upload_export_file_api(request: Request) -> JSONResponse:
 
         # Automatically reconcile if OPNsense is loaded and either UCG or UOS export is present
         if state.opnsense_cfg and state.unifi_cfg and (state.ucg_state or state.uos_state):
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions, conflict_priority=state.conflict_priority)
             state.reconciliation_report = merger.reconcile()
 
         unifi_dict = get_unifi_config_dict()
@@ -1382,7 +1389,7 @@ async def unify_all_api(request: Request) -> JSONResponse:
         state.unifi_cfg = mapper.map_all(enforce_inter_vlan_block=True)
 
         # Merge with UCG-Max export and UOS Server export
-        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions, conflict_priority=state.conflict_priority)
         report = merger.reconcile()
         state.reconciliation_report = report
 
@@ -1486,7 +1493,7 @@ async def update_network_api(request: Request) -> JSONResponse:
                 })
 
             if state.opnsense_cfg and (state.ucg_state or state.uos_state):
-                merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+                merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions, conflict_priority=state.conflict_priority)
                 state.reconciliation_report = merger.reconcile()
 
             msg = f"Netzwerk '{new_name}' (VLAN {vlan_id}) aktualisiert (Kaskadiert: {remap_res['clients_remapped']} Clients, {remap_res['wlans_remapped']} WLANs)."
@@ -1546,7 +1553,7 @@ async def update_network_api(request: Request) -> JSONResponse:
                         "target_name": tgt_name,
                     })
                     if state.opnsense_cfg and (state.ucg_state or state.uos_state):
-                        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+                        merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions, conflict_priority=state.conflict_priority)
                         state.reconciliation_report = merger.reconcile()
 
                     msg += f" Als Management-VLAN deklariert und mit VLAN 1 verschmolzen ({remap_mgmt_res['clients_remapped']} Clients, {remap_mgmt_res['wlans_remapped']} WLANs angepasst)."
@@ -1614,7 +1621,7 @@ async def remap_network_api(request: Request) -> JSONResponse:
             state.vlan_remaps.append(remap_entry)
 
         if state.opnsense_cfg and (state.ucg_state or state.uos_state):
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions, conflict_priority=state.conflict_priority)
             state.reconciliation_report = merger.reconcile()
 
         unifi_dict = get_unifi_config_dict()
@@ -1796,6 +1803,7 @@ async def apply_strategy_a_api(request: Request) -> JSONResponse:
                 state.uos_state,
                 vlan_remaps=state.vlan_remaps,
                 exclusions=state.exclusions,
+                conflict_priority=state.conflict_priority,
             )
             state.reconciliation_report = merger.reconcile()
 
@@ -2187,7 +2195,7 @@ async def edit_item_api(request: Request) -> JSONResponse:
 
         # Re-run reconciliation to refresh status
         if state.opnsense_cfg:
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions, conflict_priority=state.conflict_priority)
             state.reconciliation_report = merger.reconcile()
 
         return JSONResponse({
@@ -2202,21 +2210,43 @@ async def edit_item_api(request: Request) -> JSONResponse:
 
 async def bulk_resolve_api(request: Request) -> JSONResponse:
     try:
-        body = await request.json()
-        strategy = str(body.get("strategy", "opnsense_wins")).strip()
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        strategy = str(body.get("strategy") or body.get("priority") or "opnsense").strip().lower()
+        if strategy in ["opnsense_wins", "opnsense", "opn"]:
+            normalized_prio = "opnsense"
+        elif strategy in ["preserve_ucg", "ucg_wins", "ucg"]:
+            normalized_prio = "ucg"
+        elif strategy in ["preserve_uos", "uos_wins", "uos"]:
+            normalized_prio = "uos"
+        else:
+            normalized_prio = "manual"
+
+        state.conflict_priority = normalized_prio
+
         if not state.reconciliation_report:
-            return JSONResponse({"success": False, "error": "Kein Abgleichsbericht vorhanden."}, status_code=200)
+            if state.opnsense_cfg and state.unifi_cfg:
+                merger = MultiSourceMerger(
+                    state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state,
+                    vlan_remaps=state.vlan_remaps, exclusions=state.exclusions,
+                    conflict_priority=state.conflict_priority
+                )
+                state.reconciliation_report = merger.reconcile()
+            else:
+                return JSONResponse({"success": False, "error": "Kein Abgleichsbericht vorhanden."}, status_code=200)
 
         resolved_count = 0
         for item in state.reconciliation_report.items:
             if item.status == "conflict":
-                if strategy == "opnsense_wins":
+                if normalized_prio == "opnsense":
                     state.exclusions = [e for e in state.exclusions if e.get("item_id") != item.item_id]
                     item.status = "aligned"
                     item.action = "overwrite_ucg"
                     item.explanation = f"Konflikt gelöst: OPNsense-Masterwert ({item.opnsense_val}) überschreibt UCG."
                     resolved_count += 1
-                elif strategy == "preserve_ucg":
+                elif normalized_prio == "ucg":
                     if not any(e.get("item_id") == item.item_id for e in state.exclusions):
                         state.exclusions.append({
                             "item_id": item.item_id,
@@ -2228,16 +2258,35 @@ async def bulk_resolve_api(request: Request) -> JSONResponse:
                     item.action = "preserve_ucg"
                     item.explanation = f"Konflikt gelöst: UCG-Wert ({item.ucg_val}) bleibt geschützt erhalten."
                     resolved_count += 1
+                elif normalized_prio == "uos":
+                    item.status = "aligned"
+                    item.action = "preserve_uos"
+                    item.explanation = f"Konflikt gelöst: UniFi OS Server-Konfiguration ({item.uos_val or item.opnsense_val}) hat Vorrang."
+                    resolved_count += 1
 
         if state.opnsense_cfg and state.unifi_cfg:
-            merger = MultiSourceMerger(state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state, vlan_remaps=state.vlan_remaps, exclusions=state.exclusions)
+            merger = MultiSourceMerger(
+                state.opnsense_cfg, state.unifi_cfg, state.ucg_state, state.uos_state,
+                vlan_remaps=state.vlan_remaps, exclusions=state.exclusions,
+                conflict_priority=state.conflict_priority
+            )
             state.reconciliation_report = merger.reconcile()
+
+        prio_names = {
+            "opnsense": "1. OPNsense XML (Master)",
+            "ucg": "2. UCG-Max (Ist-Zustand)",
+            "uos": "3. UniFi OS Server (Controller)",
+            "manual": "Manuelle Einzelfallprüfung",
+        }
+        prio_label = prio_names.get(normalized_prio, normalized_prio)
 
         return JSONResponse({
             "success": True,
             "resolved_count": resolved_count,
-            "message": f"{resolved_count} Konflikte nach Strategie '{strategy}' aufgelöst.",
-            "unifi_mapped": get_unifi_config_dict()
+            "conflict_priority": normalized_prio,
+            "message": f"Kollisions-Vorrang gesetzt auf '{prio_label}' ({resolved_count} Konflikte angepasst).",
+            "unifi_mapped": get_unifi_config_dict(),
+            "reconciliation": get_unifi_config_dict().get("reconciliation"),
         })
     except Exception as e:
         logger.exception("Error resolving conflicts")
@@ -2274,6 +2323,7 @@ routes = [
     Route("/api/sources/exclusions", endpoint=list_exclusions_api, methods=["GET"]),
     Route("/api/sources/edit-item", endpoint=edit_item_api, methods=["POST"]),
     Route("/api/sources/bulk-resolve", endpoint=bulk_resolve_api, methods=["POST"]),
+    Route("/api/sources/conflict-priority", endpoint=bulk_resolve_api, methods=["POST"]),
     Route("/api/networks/update", endpoint=update_network_api, methods=["POST"]),
     Route("/api/networks/add", endpoint=add_network_api, methods=["POST"]),
     Route("/api/networks/delete", endpoint=delete_network_api, methods=["POST"]),

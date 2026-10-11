@@ -441,7 +441,8 @@ class ReconciliationReport:
     ucg_version: str = ""
     uos_version: str = ""
     items: List[ReconciliationItem] = field(default_factory=list)
-    summary: Dict[str, int] = field(default_factory=dict)
+    summary: Dict[str, Any] = field(default_factory=dict)
+    conflict_priority: str = "manual"
 
 
 @dataclass

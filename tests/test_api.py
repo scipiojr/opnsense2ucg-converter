@@ -878,11 +878,23 @@ def test_edit_item_and_bulk_resolve_api():
     # Bulk resolve with opnsense_wins
     bulk_res_opn = run(bulk_resolve_api(MockRequest({"strategy": "opnsense_wins"})))
     assert bulk_res_opn["success"] is True
+    assert bulk_res_opn["conflict_priority"] == "opnsense"
     assert bulk_res_opn["resolved_count"] >= 1
 
     # Bulk resolve with preserve_ucg
     bulk_res_ucg = run(bulk_resolve_api(MockRequest({"strategy": "preserve_ucg"})))
     assert bulk_res_ucg["success"] is True
+    assert bulk_res_ucg["conflict_priority"] == "ucg"
+
+    # Bulk resolve with uos / preserve_uos
+    bulk_res_uos = run(bulk_resolve_api(MockRequest({"strategy": "uos"})))
+    assert bulk_res_uos["success"] is True
+    assert bulk_res_uos["conflict_priority"] == "uos"
+
+    # Reset to manual
+    bulk_res_man = run(bulk_resolve_api(MockRequest({"strategy": "manual"})))
+    assert bulk_res_man["success"] is True
+    assert bulk_res_man["conflict_priority"] == "manual"
 
     print("SUCCESS: edit_item_api and bulk_resolve_api tests passed cleanly!")
 

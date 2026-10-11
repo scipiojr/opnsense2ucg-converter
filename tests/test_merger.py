@@ -385,10 +385,76 @@ def test_corrupt_file_handling():
     print("SUCCESS: Corrupt file handling test passed cleanly!")
 
 
+def test_three_way_collision_priorities():
+    """
+    Tests that collision priority selects the correct winning source for conflicts:
+    - OPNsense: OPNsense config wins, overwriting UCG.
+    - UCG: UCG existing config wins, preserving UCG value.
+    - UOS: UniFi OS Server config wins.
+    - Manual: Remains flagged as a conflict for manual review.
+    """
+    opn_cfg = UniFiTargetConfig()
+    # Target network from OPNsense: VLAN 30 with 192.168.30.1/24
+    target_net = UniFiNetwork(name="CAMERAS", vlan_id=30, gateway_cidr="192.168.30.1/24")
+    opn_cfg.networks = [target_net]
+
+    ucg_state = UniFiSourceState(
+        source_type="ucg_max",
+        networks=[{"name": "CAMERAS", "vlan": 30, "ip_subnet": "10.99.30.1/24"}]
+    )
+    uos_state = UniFiSourceState(
+        source_type="uos_server",
+        networks=[{"name": "CAMERAS", "vlan": 30, "ip_subnet": "172.20.30.1/24"}]
+    )
+
+    from src.models import OPNsenseConfig
+    empty_opn = OPNsenseConfig()
+
+    # 1. Manual / None priority -> Conflict is flagged
+    target_copy1 = UniFiTargetConfig(networks=[UniFiNetwork(name="CAMERAS", vlan_id=30, gateway_cidr="192.168.30.1/24")])
+    merger_manual = MultiSourceMerger(empty_opn, target_copy1, ucg_state=ucg_state, uos_state=uos_state, conflict_priority="manual")
+    rep_manual = merger_manual.reconcile()
+    assert rep_manual.summary["networks_conflicts"] == 1
+    item_man = next(i for i in rep_manual.items if i.item_id == "network:30")
+    assert item_man.status == "conflict"
+
+    # 2. OPNsense priority -> OPNsense wins
+    target_copy2 = UniFiTargetConfig(networks=[UniFiNetwork(name="CAMERAS", vlan_id=30, gateway_cidr="192.168.30.1/24")])
+    merger_opn = MultiSourceMerger(empty_opn, target_copy2, ucg_state=ucg_state, uos_state=uos_state, conflict_priority="opnsense")
+    rep_opn = merger_opn.reconcile()
+    assert rep_opn.summary["networks_conflicts"] == 0
+    assert rep_opn.summary["networks_aligned"] >= 1
+    item_opn = next(i for i in rep_opn.items if i.item_id == "network:30")
+    assert item_opn.status == "aligned"
+    assert item_opn.action == "overwrite_ucg"
+    assert target_copy2.networks[0].gateway_cidr == "192.168.30.1/24"
+
+    # 3. UCG priority -> UCG wins
+    target_copy3 = UniFiTargetConfig(networks=[UniFiNetwork(name="CAMERAS", vlan_id=30, gateway_cidr="192.168.30.1/24")])
+    merger_ucg = MultiSourceMerger(empty_opn, target_copy3, ucg_state=ucg_state, uos_state=uos_state, conflict_priority="ucg")
+    rep_ucg = merger_ucg.reconcile()
+    assert rep_ucg.summary["networks_conflicts"] == 0
+    assert rep_ucg.summary["networks_preserved"] >= 1
+    item_ucg = next(i for i in rep_ucg.items if i.item_id == "network:30")
+    assert item_ucg.status == "preserve_ucg"
+    assert target_copy3.networks[0].gateway_cidr == "10.99.30.1/24"
+
+    # 4. UOS priority -> UOS wins
+    target_copy4 = UniFiTargetConfig(networks=[UniFiNetwork(name="CAMERAS", vlan_id=30, gateway_cidr="192.168.30.1/24")])
+    merger_uos = MultiSourceMerger(empty_opn, target_copy4, ucg_state=ucg_state, uos_state=uos_state, conflict_priority="uos")
+    rep_uos = merger_uos.reconcile()
+    assert rep_uos.summary["networks_conflicts"] == 0
+    item_uos = next(i for i in rep_uos.items if i.item_id == "network:30")
+    assert item_uos.status == "aligned"
+    assert item_uos.action == "preserve_uos"
+    assert target_copy4.networks[0].gateway_cidr == "172.20.30.1/24"
+
+
 if __name__ == "__main__":
     test_three_way_reconciliation()
     test_export_files_parsing_and_unification()
     test_unifi_os_aes256_backup()
     test_bson_stream_comprehensive()
     test_corrupt_file_handling()
+    test_three_way_collision_priorities()
 
